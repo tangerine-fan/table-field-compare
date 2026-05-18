@@ -479,7 +479,7 @@ def print_summary(results: list[dict]) -> None:
 
     print("\n" + "=" * 70)
     print(
-        f"📊 统计: 共 {total} 表 | "
+        f"[统计] 共 {total} 表 | "
         f"完全一致: {perfect} | 存在差异: {diff} | "
         f"DEV缺失: {dev_miss} | 标准化缺失: {std_miss}"
     )
