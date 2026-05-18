@@ -7,12 +7,21 @@
 ## 快速开始
 
 ```bash
-# 安装依赖
+git clone https://github.com/tangerine-fan/table-field-compare.git
+cd table-field-compare
 pip install openpyxl
-
-# 运行
 python src/table_field_compare.py TEST_DEV.xlsx standard.xlsx -o result.xlsx
 ```
+
+## 下载
+
+预构建的便携包（无需安装 Python）：**[GitHub Releases](https://github.com/tangerine-fan/table-field-compare/releases)**
+
+| 文件 | 大小 | 说明 |
+|------|------|------|
+| `table_field_compare_wheels.zip` | 255KB | pip wheel 离线包（需 Python 3.8+） |
+| `table_field_compare_portable_windows.zip` | 12MB | Windows 便携包（解压即用） |
+| `table_field_compare_portable_linux.tar.gz` | 51MB | Linux 便携包（解压即用） |
 
 ## 功能
 
@@ -71,13 +80,7 @@ python src/table_field_compare.py --help
 
 ## 离线部署
 
-详见 [packages/README.md](packages/README.md)，提供三种交付方式：
-
-| 方式 | 大小 | 目标机要求 |
-|------|------|-----------|
-| pip wheel 离线包 | ~300KB | 需要 Python 3.8+ |
-| Linux 便携包 | ~50MB | 解压即用，无需 Python |
-| Windows 便携包 | ~12MB | 解压即用，无需 Python |
+详见 [scripts/README.md](scripts/README.md)
 
 ## 依赖
 
