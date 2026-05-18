@@ -31,19 +31,27 @@ from typing import Optional
 
 import openpyxl
 
-# ── 导入 Excel 样式工具（workspace 层 Tools/excel_styles） ──
-_workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-if _workspace_root not in sys.path:
-    sys.path.insert(0, _workspace_root)
-
-from Tools.excel_styles import (
-    freeze_header,
-    get_theme,
-    set_column_widths,
-    style_data_cell,
+# ── 导入 Excel 样式（项目本地，由 Tools/excel_styles/generate.py 生成） ──
+from excel_style import (
+    HEADER_FONT,
+    HEADER_FILL,
+    BODY_FONT,
+    ALIGN_CENTER,
+    ALIGN_LEFT,
+    THIN_BORDER,
+    STATUS_FILLS,
+    STATUS_FONTS,
+    SOURCE_FILLS,
+    SOURCE_FONTS,
+    SUMMARY_FILL,
+    SUMMARY_FONT,
+    SUMMARY_COL_WIDTHS,
+    DETAIL_COL_WIDTHS,
     style_header_row,
+    style_data_cell,
+    set_column_widths,
+    freeze_header,
     style_summary_row,
-    update_font_name,
 )
 
 # ========== 日志配置 ==========
@@ -116,12 +124,15 @@ def _detect_cjk_font() -> str:
 FONT_NAME = _detect_cjk_font()
 logger.info("使用字体: %s", FONT_NAME)
 
-# ========== 加载主题 ==========
+# 用运行时检测到的字体覆盖生成的默认字体名
+for _obj in [
+    HEADER_FONT, BODY_FONT, SUMMARY_FONT,
+    *STATUS_FONTS.values(), *SOURCE_FONTS.values(),
+]:
+    _obj.name = FONT_NAME
 
-# 加载默认主题 (hermes_blue)，应用系统检测到的字体
-_theme = get_theme()
-update_font_name(_theme, FONT_NAME)
-logger.info("使用样式主题: %s", _theme.NAME)
+# 移除不再使用的导入，清理命名空间
+del _obj
 
 
 # ========== 核心函数 ==========
@@ -419,7 +430,6 @@ def compare_fields(
 
 def write_excel(results: list[dict], output_path: str) -> None:
     """将对比结果写入Excel文件，包含两个Sheet"""
-    theme = get_theme()  # hermes_blue
 
     wb = openpyxl.Workbook()
 
@@ -428,7 +438,7 @@ def write_excel(results: list[dict], output_path: str) -> None:
     ws1.title = "汇总对比"
     headers1 = ["标准表名", "DEV原表名", "标准化字段数", "DEV字段数", "对比结果", "差异说明"]
 
-    style_header_row(ws1, headers1, theme)
+    style_header_row(ws1, headers1)
 
     # 批量收集数据行
     data_rows: list[list] = []
@@ -444,11 +454,11 @@ def write_excel(results: list[dict], output_path: str) -> None:
             ws1.cell(row=r_idx, column=col_idx, value=value)
 
         status = row_data[4]
-        status_font = theme.STATUS_FONTS.get(status, theme.BODY_FONT)
-        status_fill = theme.STATUS_FILLS.get(status)
+        status_font = STATUS_FONTS.get(status, BODY_FONT)
+        status_fill = STATUS_FILLS.get(status)
 
         for col_idx in range(1, 7):
-            style_data_cell(ws1, r_idx, col_idx, font=status_font, fill=status_fill if col_idx == 5 else None, theme=theme)
+            style_data_cell(ws1, r_idx, col_idx, font=status_font, fill=status_fill if col_idx == 5 else None)
 
     # 统计汇总行
     summary_row = len(data_rows) + 2
@@ -464,15 +474,15 @@ def write_excel(results: list[dict], output_path: str) -> None:
         f"DEV缺失: {dev_miss} | "
         f"标准化缺失: {std_miss}"
     )
-    style_summary_row(ws1, summary_row, 6, summary_text, theme)
+    style_summary_row(ws1, summary_row, 6, summary_text)
 
-    set_column_widths(ws1, theme.SUMMARY_COL_WIDTHS)
+    set_column_widths(ws1, SUMMARY_COL_WIDTHS)
     freeze_header(ws1)
 
     # ----- Sheet 2: 字段级详细对比 -----
     ws2 = wb.create_sheet("字段级详细对比")
     headers2 = ["标准表名", "DEV原表名", "字段名", "字段来源"]
-    style_header_row(ws2, headers2, theme)
+    style_header_row(ws2, headers2)
 
     # 批量收集所有字段行
     field_rows: list[tuple[str, str, str, str]] = []
@@ -490,13 +500,13 @@ def write_excel(results: list[dict], output_path: str) -> None:
         ws2.cell(row=r_idx, column=3, value=field)
         ws2.cell(row=r_idx, column=4, value=source)
 
-        source_font = theme.SOURCE_FONTS.get(source, theme.BODY_FONT)
-        source_fill = theme.SOURCE_FILLS.get(source)
+        source_font = SOURCE_FONTS.get(source, BODY_FONT)
+        source_fill = SOURCE_FILLS.get(source)
         for col_idx in range(1, 5):
             style_data_cell(ws2, r_idx, col_idx, font=source_font,
-                           fill=source_fill if col_idx == 4 else None, theme=theme)
+                           fill=source_fill if col_idx == 4 else None)
 
-    set_column_widths(ws2, theme.DETAIL_COL_WIDTHS)
+    set_column_widths(ws2, DETAIL_COL_WIDTHS)
     freeze_header(ws2)
 
     # 保存
