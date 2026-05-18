@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DIST_DIR="$SCRIPT_DIR/../dist"
 WHEELS_DIR="$DIST_DIR/wheels"
 RUNTIME_DIR="$DIST_DIR/runtime"
-SRC="$SCRIPT_DIR/../table_field_compare.py"
+SRC="$SCRIPT_DIR/../src/table_field_compare.py"
 PACKAGES_DIR="$SCRIPT_DIR"
 
 GREEN='\033[0;32m'

@@ -11,7 +11,7 @@
 pip install openpyxl
 
 # 运行
-python table_field_compare.py TEST_DEV.xlsx standard.xlsx -o result.xlsx
+python src/table_field_compare.py TEST_DEV.xlsx standard.xlsx -o result.xlsx
 ```
 
 ## 功能
@@ -28,7 +28,7 @@ python table_field_compare.py TEST_DEV.xlsx standard.xlsx -o result.xlsx
 ## 用法
 
 ```
-用法: python table_field_compare.py TEST_DEV.xlsx standard.xlsx [选项]
+用法: python src/table_field_compare.py TEST_DEV.xlsx standard.xlsx [选项]
 
 选项:
   -o, --output PATH     输出文件路径（默认: 表结构字段对比结果.xlsx）
@@ -42,16 +42,16 @@ python table_field_compare.py TEST_DEV.xlsx standard.xlsx -o result.xlsx
 
 ```bash
 # 基本用法
-python table_field_compare.py TEST_DEV.xlsx standard.xlsx -o result.xlsx
+python src/table_field_compare.py TEST_DEV.xlsx standard.xlsx -o result.xlsx
 
 # 仅控制台查看
-python table_field_compare.py dev.xlsx std.xlsx --console-only
+python src/table_field_compare.py dev.xlsx std.xlsx --console-only
 
 # 自定义排除字段
-python table_field_compare.py dev.xlsx std.xlsx --exclude DEL_FLG,SRC_SYS_CD
+python src/table_field_compare.py dev.xlsx std.xlsx --exclude DEL_FLG,SRC_SYS_CD
 
 # 查看所有选项
-python table_field_compare.py --help
+python src/table_field_compare.py --help
 ```
 
 ## 输出

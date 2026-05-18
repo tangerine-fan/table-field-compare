@@ -57,16 +57,16 @@ cd portable_linux/
 
 ```bash
 # 查看帮助
-python table_field_compare.py --help
+python src/table_field_compare.py --help
 
 # 基本用法
-python table_field_compare.py TEST_DEV.xlsx standard.xlsx -o result.xlsx
+python src/table_field_compare.py TEST_DEV.xlsx standard.xlsx -o result.xlsx
 
 # 仅控制台输出
-python table_field_compare.py dev.xlsx std.xlsx --console-only
+python src/table_field_compare.py dev.xlsx std.xlsx --console-only
 
 # 自定义排除字段
-python table_field_compare.py dev.xlsx std.xlsx --exclude DEL_FLG,SRC_SYS_CD
+python src/table_field_compare.py dev.xlsx std.xlsx --exclude DEL_FLG,SRC_SYS_CD
 ```
 
 ## 🔤 字体说明

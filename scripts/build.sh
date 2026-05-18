@@ -24,7 +24,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR/.."
 DIST_DIR="$PROJECT_DIR/dist"
-SRC="$PROJECT_DIR/table_field_compare.py"
+SRC="$PROJECT_DIR/src/table_field_compare.py"
 
 mkdir -p "$DIST_DIR"
 
