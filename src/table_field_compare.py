@@ -30,8 +30,22 @@ from pathlib import Path
 from typing import Optional
 
 import openpyxl
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
+
+# ── 导入 Excel 样式工具 ──
+_workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+if _workspace_root not in sys.path:
+    sys.path.insert(0, _workspace_root)
+
+from Tools.excel_styles import (
+    freeze_header,
+    get_theme,
+    list_themes,
+    set_column_widths,
+    style_data_cell,
+    style_header_row,
+    style_summary_row,
+    update_font_name,
+)
 
 # ========== 日志配置 ==========
 
@@ -103,52 +117,12 @@ def _detect_cjk_font() -> str:
 FONT_NAME = _detect_cjk_font()
 logger.info("使用字体: %s", FONT_NAME)
 
-# ========== 样式定义 ==========
+# ========== 加载主题 ==========
 
-HEADER_FONT = Font(name=FONT_NAME, bold=True, size=11, color="FFFFFF")
-HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-ALIGN_CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
-ALIGN_LEFT = Alignment(vertical="center", wrap_text=True)
-THIN_BORDER = Border(
-    left=Side(style="thin"),
-    right=Side(style="thin"),
-    top=Side(style="thin"),
-    bottom=Side(style="thin"),
-)
-
-STATUS_STYLES: dict[str, tuple[Font, PatternFill]] = {
-    "完全一致": (
-        Font(name=FONT_NAME, color="006100"),
-        PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
-    ),
-    "存在差异": (
-        Font(name=FONT_NAME, color="9C0006"),
-        PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
-    ),
-    "DEV缺失": (
-        Font(name=FONT_NAME, color="9C6500"),
-        PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
-    ),
-    "标准化缺失": (
-        Font(name=FONT_NAME, color="9C6500"),
-        PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
-    ),
-}
-
-SOURCE_STYLES: dict[str, tuple[Font, PatternFill]] = {
-    "两边共有": (
-        Font(name=FONT_NAME, color="006100"),
-        PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
-    ),
-    "仅标准化有": (
-        Font(name=FONT_NAME, color="9C0006"),
-        PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
-    ),
-    "仅DEV有": (
-        Font(name=FONT_NAME, color="9C6500"),
-        PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
-    ),
-}
+# 加载默认主题 (hermes_blue)，应用系统检测到的字体
+_theme = get_theme()
+update_font_name(_theme, FONT_NAME)
+logger.info("使用样式主题: %s", _theme.NAME)
 
 
 # ========== 核心函数 ==========
@@ -440,8 +414,9 @@ def compare_fields(
     return results
 
 
-def write_excel(results: list[dict], output_path: str) -> None:
+def write_excel(results: list[dict], output_path: str, theme_name: str | None = None) -> None:
     """将对比结果写入Excel文件，包含两个Sheet"""
+    theme = get_theme(theme_name)
 
     wb = openpyxl.Workbook()
 
@@ -450,40 +425,27 @@ def write_excel(results: list[dict], output_path: str) -> None:
     ws1.title = "汇总对比"
     headers1 = ["标准表名", "DEV原表名", "标准化字段数", "DEV字段数", "对比结果", "差异说明"]
 
-    # 写表头
-    for col_idx, header_text in enumerate(headers1, 1):
-        cell = ws1.cell(row=1, column=col_idx, value=header_text)
-        cell.font = HEADER_FONT
-        cell.fill = HEADER_FILL
-        cell.alignment = ALIGN_CENTER
+    style_header_row(ws1, headers1, theme)
 
-    # 批量收集数据行，避免 append + 手动样式导致的空行问题
+    # 批量收集数据行
     data_rows: list[list] = []
     for r in results:
-        data_rows.append(
-            [
-                r["标准表名"],
-                r["DEV原表名"],
-                r["标准化字段数"],
-                r["DEV字段数"],
-                r["对比结果"],
-                r["差异说明"],
-            ]
-        )
+        data_rows.append([
+            r["标准表名"], r["DEV原表名"], r["标准化字段数"],
+            r["DEV字段数"], r["对比结果"], r["差异说明"],
+        ])
 
     # 写数据行 + 样式
     for r_idx, row_data in enumerate(data_rows, 2):
         for col_idx, value in enumerate(row_data, 1):
-            cell = ws1.cell(row=r_idx, column=col_idx, value=value)
-            cell.border = THIN_BORDER
-            cell.alignment = ALIGN_LEFT
+            ws1.cell(row=r_idx, column=col_idx, value=value)
 
-        # 根据状态应用样式
-        status = row_data[4]  # 对比结果列
-        font, fill = STATUS_STYLES.get(status, (Font(name=FONT_NAME), None))
+        status = row_data[4]
+        status_font = theme.STATUS_FONTS.get(status, theme.BODY_FONT)
+        status_fill = theme.STATUS_FILLS.get(status)
+
         for col_idx in range(1, 7):
-            ws1.cell(row=r_idx, column=col_idx).font = font
-        ws1.cell(row=r_idx, column=5).fill = fill
+            style_data_cell(ws1, r_idx, col_idx, font=status_font, fill=status_fill if col_idx == 5 else None, theme=theme)
 
     # 统计汇总行
     summary_row = len(data_rows) + 2
@@ -492,9 +454,6 @@ def write_excel(results: list[dict], output_path: str) -> None:
     diff = sum(1 for r in results if r["对比结果"] == "存在差异")
     dev_miss = sum(1 for r in results if r["对比结果"] == "DEV缺失")
     std_miss = sum(1 for r in results if r["对比结果"] == "标准化缺失")
-
-    summary_font = Font(name=FONT_NAME, bold=True, size=11)
-    summary_fill = PatternFill(start_color="D9E2F3", end_color="D9E2F3", fill_type="solid")
     summary_text = (
         f"共 {total} 个表 | "
         f"完全一致: {perfect} | "
@@ -502,33 +461,15 @@ def write_excel(results: list[dict], output_path: str) -> None:
         f"DEV缺失: {dev_miss} | "
         f"标准化缺失: {std_miss}"
     )
-    ws1.merge_cells(
-        start_row=summary_row, start_column=1, end_row=summary_row, end_column=6
-    )
-    summary_cell = ws1.cell(row=summary_row, column=1, value=summary_text)
-    summary_cell.font = summary_font
-    summary_cell.fill = summary_fill
-    summary_cell.alignment = ALIGN_LEFT
-    summary_cell.border = THIN_BORDER
-    for col_idx in range(2, 7):
-        ws1.cell(row=summary_row, column=col_idx).border = THIN_BORDER
+    style_summary_row(ws1, summary_row, 6, summary_text, theme)
 
-    # 列宽和冻结
-    col_widths1 = [25, 35, 15, 15, 15, 80]
-    for i, w in enumerate(col_widths1, 1):
-        ws1.column_dimensions[get_column_letter(i)].width = w
-    ws1.freeze_panes = "A2"
+    set_column_widths(ws1, theme.SUMMARY_COL_WIDTHS)
+    freeze_header(ws1)
 
     # ----- Sheet 2: 字段级详细对比 -----
     ws2 = wb.create_sheet("字段级详细对比")
     headers2 = ["标准表名", "DEV原表名", "字段名", "字段来源"]
-
-    # 写表头
-    for col_idx, header_text in enumerate(headers2, 1):
-        cell = ws2.cell(row=1, column=col_idx, value=header_text)
-        cell.font = HEADER_FONT
-        cell.fill = HEADER_FILL
-        cell.alignment = ALIGN_CENTER
+    style_header_row(ws2, headers2, theme)
 
     # 批量收集所有字段行
     field_rows: list[tuple[str, str, str, str]] = []
@@ -540,27 +481,20 @@ def write_excel(results: list[dict], output_path: str) -> None:
         for field in r["_only_dev"]:
             field_rows.append((r["标准表名"], r["DEV原表名"], field, "仅DEV有"))
 
-    # 批量写数据行 + 样式
     for r_idx, (table, dev_name, field, source) in enumerate(field_rows, 2):
         ws2.cell(row=r_idx, column=1, value=table)
         ws2.cell(row=r_idx, column=2, value=dev_name)
         ws2.cell(row=r_idx, column=3, value=field)
         ws2.cell(row=r_idx, column=4, value=source)
 
-        font, fill = SOURCE_STYLES.get(
-            source, (Font(name=FONT_NAME), None)
-        )
+        source_font = theme.SOURCE_FONTS.get(source, theme.BODY_FONT)
+        source_fill = theme.SOURCE_FILLS.get(source)
         for col_idx in range(1, 5):
-            cell = ws2.cell(row=r_idx, column=col_idx)
-            cell.border = THIN_BORDER
-            cell.font = font
-            cell.alignment = ALIGN_LEFT
-        ws2.cell(row=r_idx, column=4).fill = fill  # 字段来源列加背景色
+            style_data_cell(ws2, r_idx, col_idx, font=source_font,
+                           fill=source_fill if col_idx == 4 else None, theme=theme)
 
-    col_widths2 = [25, 35, 30, 15]
-    for i, w in enumerate(col_widths2, 1):
-        ws2.column_dimensions[get_column_letter(i)].width = w
-    ws2.freeze_panes = "A2"
+    set_column_widths(ws2, theme.DETAIL_COL_WIDTHS)
+    freeze_header(ws2)
 
     # 保存
     output_dir = os.path.dirname(os.path.abspath(output_path)) or "."
@@ -621,11 +555,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "dev_path",
         metavar="TEST_DEV.xlsx",
+        nargs="?",
         help="TEST_DEV 文件路径",
     )
     parser.add_argument(
         "std_path",
         metavar="standard.xlsx",
+        nargs="?",
         help="标准化映射文件路径",
     )
     parser.add_argument(
@@ -650,6 +586,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="显示详细调试信息",
     )
+    parser.add_argument(
+        "--theme",
+        default=None,
+        choices=["hermes_blue", "obsidian_dark", "stripe_clean", "catppuccin_latte", "anuppuccin_warm"],
+        help="Excel 样式主题（默认: hermes_blue）",
+    )
+    parser.add_argument(
+        "--list-themes",
+        action="store_true",
+        help="列出所有可用主题",
+    )
 
     return parser.parse_args()
 
@@ -663,10 +610,19 @@ def main() -> None:
     if args.verbose:
         logger.setLevel(logging.DEBUG)
 
+    # --list-themes
+    if args.list_themes:
+        print("\n可用主题:")
+        for t in list_themes():
+            marker = " (默认)" if t["name"] == "hermes_blue" else ""
+            print(f"  {t['name']:20s} — {t['description']}{marker}")
+        return
+
     dev_path: str = args.dev_path
     std_path: str = args.std_path
     output_path: str = args.output_path
     console_only: bool = args.console_only
+    theme_name: str | None = args.theme
 
     # 解析排除字段
     if args.exclude is not None:
@@ -702,7 +658,7 @@ def main() -> None:
 
     # 输出
     if not console_only:
-        write_excel(results, output_path)
+        write_excel(results, output_path, theme_name)
     print_summary(results)
 
 
