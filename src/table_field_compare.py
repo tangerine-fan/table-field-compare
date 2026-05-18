@@ -32,20 +32,32 @@ from typing import Optional
 import openpyxl
 
 # ── 导入 Excel 样式工具 ──
-_workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-if _workspace_root not in sys.path:
-    sys.path.insert(0, _workspace_root)
-
-from Tools.excel_styles import (
-    freeze_header,
-    get_theme,
-    list_themes,
-    set_column_widths,
-    style_data_cell,
-    style_header_row,
-    style_summary_row,
-    update_font_name,
-)
+# 优先使用项目内的 excel_styles，回退到 workspace 层的 Tools/excel_styles
+try:
+    from excel_styles import (
+        freeze_header,
+        get_theme,
+        list_themes,
+        set_column_widths,
+        style_data_cell,
+        style_header_row,
+        style_summary_row,
+        update_font_name,
+    )
+except ImportError:
+    _workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    if _workspace_root not in sys.path:
+        sys.path.insert(0, _workspace_root)
+    from Tools.excel_styles import (
+        freeze_header,
+        get_theme,
+        list_themes,
+        set_column_widths,
+        style_data_cell,
+        style_header_row,
+        style_summary_row,
+        update_font_name,
+    )
 
 # ========== 日志配置 ==========
 
