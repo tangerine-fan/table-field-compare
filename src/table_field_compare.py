@@ -31,33 +31,20 @@ from typing import Optional
 
 import openpyxl
 
-# ── 导入 Excel 样式工具 ──
-# 优先使用项目内的 excel_styles，回退到 workspace 层的 Tools/excel_styles
-try:
-    from excel_styles import (
-        freeze_header,
-        get_theme,
-        list_themes,
-        set_column_widths,
-        style_data_cell,
-        style_header_row,
-        style_summary_row,
-        update_font_name,
-    )
-except ImportError:
-    _workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    if _workspace_root not in sys.path:
-        sys.path.insert(0, _workspace_root)
-    from Tools.excel_styles import (
-        freeze_header,
-        get_theme,
-        list_themes,
-        set_column_widths,
-        style_data_cell,
-        style_header_row,
-        style_summary_row,
-        update_font_name,
-    )
+# ── 导入 Excel 样式工具（workspace 层 Tools/excel_styles） ──
+_workspace_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+if _workspace_root not in sys.path:
+    sys.path.insert(0, _workspace_root)
+
+from Tools.excel_styles import (
+    freeze_header,
+    get_theme,
+    set_column_widths,
+    style_data_cell,
+    style_header_row,
+    style_summary_row,
+    update_font_name,
+)
 
 # ========== 日志配置 ==========
 
@@ -430,9 +417,9 @@ def compare_fields(
     return results
 
 
-def write_excel(results: list[dict], output_path: str, theme_name: str | None = None) -> None:
+def write_excel(results: list[dict], output_path: str) -> None:
     """将对比结果写入Excel文件，包含两个Sheet"""
-    theme = get_theme(theme_name)
+    theme = get_theme()  # hermes_blue
 
     wb = openpyxl.Workbook()
 
@@ -602,17 +589,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="显示详细调试信息",
     )
-    parser.add_argument(
-        "--theme",
-        default=None,
-        choices=["hermes_blue", "obsidian_dark", "stripe_clean", "catppuccin_latte", "anuppuccin_warm"],
-        help="Excel 样式主题（默认: hermes_blue）",
-    )
-    parser.add_argument(
-        "--list-themes",
-        action="store_true",
-        help="列出所有可用主题",
-    )
 
     return parser.parse_args()
 
@@ -626,19 +602,10 @@ def main() -> None:
     if args.verbose:
         logger.setLevel(logging.DEBUG)
 
-    # --list-themes
-    if args.list_themes:
-        print("\n可用主题:")
-        for t in list_themes():
-            marker = " (默认)" if t["name"] == "hermes_blue" else ""
-            print(f"  {t['name']:20s} — {t['description']}{marker}")
-        return
-
     dev_path: str = args.dev_path
     std_path: str = args.std_path
     output_path: str = args.output_path
     console_only: bool = args.console_only
-    theme_name: str | None = args.theme
 
     # 解析排除字段
     if args.exclude is not None:
@@ -674,7 +641,7 @@ def main() -> None:
 
     # 输出
     if not console_only:
-        write_excel(results, output_path, theme_name)
+        write_excel(results, output_path)
     print_summary(results)
 
 

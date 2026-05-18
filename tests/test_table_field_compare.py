@@ -165,56 +165,13 @@ class TestCoreFunctionality(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
 
-
-class TestThemes(unittest.TestCase):
-    """主题切换测试"""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.tmpdir = tempfile.mkdtemp(prefix="tfc_theme_")
-        cls.dev = os.path.join(cls.tmpdir, "dev.xlsx")
-        cls.std = os.path.join(cls.tmpdir, "std.xlsx")
-        make_test_dev(cls.dev, {
-            "S_TST_TST_TABLE_DAY": ["FIELD_A", "FIELD_B"],
-        })
-        make_std_file(cls.std, {
-            "TST_TABLE": ["FIELD_A", "FIELD_B"],
-        })
-
-    def _header_fill(self, xlsx_path):
-        wb = openpyxl.load_workbook(xlsx_path)
-        return wb["汇总对比"].cell(row=1, column=1).fill.start_color.rgb
-
-    def test_default_is_hermes_blue(self):
-        output = os.path.join(self.tmpdir, "default.xlsx")
-        run(str(self.dev), str(self.std), "-o", output)
-        self.assertEqual(self._header_fill(output), "004472C4")
-
-    def test_obsidian_dark(self):
-        output = os.path.join(self.tmpdir, "dark.xlsx")
-        run(str(self.dev), str(self.std), "-o", output, "--theme", "obsidian_dark")
-        self.assertEqual(self._header_fill(output), "007C3AED")
-
-    def test_stripe_clean(self):
-        output = os.path.join(self.tmpdir, "stripe.xlsx")
-        run(str(self.dev), str(self.std), "-o", output, "--theme", "stripe_clean")
-        self.assertEqual(self._header_fill(output), "00F7F8FA")
-
-    def test_catppuccin_latte(self):
-        output = os.path.join(self.tmpdir, "latte.xlsx")
-        run(str(self.dev), str(self.std), "-o", output, "--theme", "catppuccin_latte")
-        self.assertEqual(self._header_fill(output), "00CCD0DA")
-
-    def test_anuppuccin_warm(self):
-        output = os.path.join(self.tmpdir, "warm.xlsx")
-        run(str(self.dev), str(self.std), "-o", output, "--theme", "anuppuccin_warm")
-        self.assertEqual(self._header_fill(output), "008B6914")
-
-    def test_list_themes(self):
-        result = run("--list-themes")
-        for name in ["hermes_blue", "obsidian_dark", "stripe_clean",
-                      "catppuccin_latte", "anuppuccin_warm"]:
-            self.assertIn(name, result.stdout)
+    def test_style_hermes_blue(self):
+        """输出使用 hermes_blue 主题"""
+        output = os.path.join(self.tmpdir, "style_check.xlsx")
+        run(str(self.dev_path), str(self.std_path), "-o", output)
+        wb = openpyxl.load_workbook(output)
+        fill = wb["汇总对比"].cell(row=1, column=1).fill.start_color.rgb
+        self.assertEqual(fill, "004472C4")
 
 
 class TestCLI(unittest.TestCase):
@@ -222,14 +179,9 @@ class TestCLI(unittest.TestCase):
 
     def test_help(self):
         result = run("--help")
-        self.assertIn("--theme", result.stdout)
         self.assertIn("--exclude", result.stdout)
         self.assertIn("--console-only", result.stdout)
-
-    def test_list_themes(self):
-        result = run("--list-themes")
-        self.assertIn("hermes_blue", result.stdout)
-        self.assertIn("默认", result.stdout)
+        self.assertNotIn("--theme", result.stdout)  # 主题不可运行时切换
 
 
 if __name__ == "__main__":
