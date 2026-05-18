@@ -2,6 +2,8 @@
 
 表结构字段对比工具 —— 对比 TEST_DEV 与标准化 Excel 文件的字段差异，生成带样式的对比报告。
 
+**[GitHub](https://github.com/tangerine-fan/table-field-compare)**
+
 ## 快速开始
 
 ```bash
