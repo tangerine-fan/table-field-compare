@@ -109,9 +109,12 @@ def _make_std_file(path, tables):
 
 def run(*args, expect_ok=True):
     """运行脚本，失败时附带完整 stderr"""
+    env = os.environ.copy()
+    env.setdefault("PYTHONIOENCODING", "utf-8")
     result = subprocess.run(
         [sys.executable, str(SCRIPT)] + list(args),
         capture_output=True, text=True, timeout=30,
+        env=env,
     )
     if expect_ok and result.returncode != 0:
         # pytest 会展示这段信息，不用藏着了
