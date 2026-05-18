@@ -117,8 +117,8 @@ def run(*args, expect_ok=True):
         # pytest 会展示这段信息，不用藏着了
         raise AssertionError(
             f"脚本返回 {result.returncode}\n"
-            f"=== STDERR ===\n{result.stderr}\n"
-            f"=== STDOUT ===\n{result.stderr[-500:]}"
+            f"=== STDERR ===\n{result.stdout}\n"
+            f"=== STDOUT ===\n{result.stdout[-500:]}"
         )
     return result
 
@@ -131,7 +131,7 @@ class TestNormalRun:
     def test_generates_excel(self, dev_xlsx, std_xlsx, out_xlsx):
         result = run(dev_xlsx, std_xlsx, "-o", out_xlsx)
         assert os.path.exists(out_xlsx)
-        assert "统计" in result.stderr
+        assert "统计" in result.stdout
 
     def test_output_structure(self, dev_xlsx, std_xlsx, out_xlsx):
         run(dev_xlsx, std_xlsx, "-o", out_xlsx)
@@ -166,11 +166,11 @@ class TestEdgeCases:
 
     def test_empty_dev(self, empty_dev_xlsx, std_xlsx, out_xlsx):
         result = run(empty_dev_xlsx, std_xlsx, "-o", out_xlsx)
-        assert "DEV缺失" in result.stderr
+        assert "DEV缺失" in result.stdout
 
     def test_empty_std(self, dev_xlsx, empty_std_xlsx, out_xlsx):
         result = run(dev_xlsx, empty_std_xlsx, "-o", out_xlsx)
-        assert "标准化缺失" in result.stderr
+        assert "标准化缺失" in result.stdout
 
     def test_file_not_found(self, out_xlsx):
         result = run("/tmp/nonexistent_12345.xlsx", "/tmp/also_nope.xlsx",
@@ -183,7 +183,7 @@ class TestCLI:
 
     def test_help(self):
         result = run("--help")
-        output = result.stdout + result.stderr  # argparse help 在 stdout
+        output = result.stdout  # argparse help 在 stdout
         assert "--exclude" in output
         assert "--console-only" in output
         assert "--theme" not in output  # 不支持运行时切换

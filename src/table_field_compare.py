@@ -69,7 +69,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 # ========== 配置 ==========
 
 # 默认需要从DEV中排除的字段（不参与对比，视为不存在）
@@ -79,7 +78,6 @@ DEFAULT_EXCLUDE_FIELDS = {"DEL_FLG", "ETL_TM_STMP", "PART_DT", "SRC_SYS_CD"}
 MAX_DATA_SEARCH_ROWS = 200
 
 # ========== 核心函数 ==========
-
 
 def read_test_dev(filepath: str) -> dict[str, list[str]]:
     """
@@ -147,7 +145,6 @@ def read_test_dev(filepath: str) -> dict[str, list[str]]:
 
     return dict(tables)
 
-
 def is_field_name(value) -> bool:
     """
     判断一个值是否像字段名。
@@ -168,7 +165,6 @@ def is_field_name(value) -> bool:
     if any("\u4e00" <= ch <= "\u9fff" for ch in v) and not v[0].isdigit():
         return True
     return False
-
 
 def read_standard_file(filepath: str) -> dict[str, list[str]]:
     """
@@ -262,7 +258,6 @@ def read_standard_file(filepath: str) -> dict[str, list[str]]:
 
     return dict(tables)
 
-
 def extract_std_name(dev_table_name: str) -> str:
     """
     从TEST_DEV表名提取标准表名。
@@ -287,7 +282,6 @@ def extract_std_name(dev_table_name: str) -> str:
         "表名 '%s' 不符合 S_系统名_标准名_接入方式 格式，保留原名", dev_table_name
     )
     return dev_table_name
-
 
 def compare_fields(
     dev_tables_raw: dict[str, list[str]],
@@ -369,7 +363,6 @@ def compare_fields(
         )
 
     return results
-
 
 def write_excel(results: list[dict], output_path: str) -> None:
     """将对比结果写入Excel文件，包含两个Sheet"""
@@ -458,26 +451,25 @@ def write_excel(results: list[dict], output_path: str) -> None:
     wb.save(output_path)
     logger.info("✅ 对比结果已保存: %s", output_path)
 
-
 def print_summary(results: list[dict]) -> None:
-    """在控制台打印对比结果摘要（输出到 stderr，避免平台编码问题）"""
-    out = sys.stderr
-    print("\n" + "=" * 70, file=out)
-    print("对比结果摘要", file=out)
-    print("=" * 70, file=out)
+    """在控制台打印对比结果摘要"""
+
+    print("\n" + "=" * 70)
+    print("对比结果摘要")
+    print("=" * 70)
 
     for r in results:
-        print(f"\n  表: {r['标准表名']} ({r['DEV原表名']})", file=out)
-        print(f"    标准化字段数: {r['标准化字段数']}", file=out)
-        print(f"    DEV字段数（已排除指定字段）: {r['DEV字段数']}", file=out)
-        print(f"    对比结果: {r['对比结果']}", file=out)
+        print(f"\n  表: {r['标准表名']} ({r['DEV原表名']})")
+        print(f"    标准化字段数: {r['标准化字段数']}")
+        print(f"    DEV字段数（已排除指定字段）: {r['DEV字段数']}")
+        print(f"    对比结果: {r['对比结果']}")
 
         if r["对比结果"] == "存在差异":
-            print(f"    两边共有: {len(r['_common'])} 个", file=out)
-            print(f"    标准化独有: {len(r['_only_std'])} 个 -> {r['_only_std']}", file=out)
-            print(f"    DEV独有: {len(r['_only_dev'])} 个 -> {r['_only_dev']}", file=out)
+            print(f"    两边共有: {len(r['_common'])} 个")
+            print(f"    标准化独有: {len(r['_only_std'])} 个 -> {r['_only_std']}")
+            print(f"    DEV独有: {len(r['_only_dev'])} 个 -> {r['_only_dev']}")
 
-        print(f"    差异说明: {r['差异说明']}", file=out)
+        print(f"    差异说明: {r['差异说明']}")
 
     total = len(results)
     perfect = sum(1 for r in results if r["对比结果"] == "完全一致")
@@ -485,15 +477,13 @@ def print_summary(results: list[dict]) -> None:
     dev_miss = sum(1 for r in results if r["对比结果"] == "DEV缺失")
     std_miss = sum(1 for r in results if r["对比结果"] == "标准化缺失")
 
-    print("\n" + "=" * 70, file=out)
+    print("\n" + "=" * 70)
     print(
         f"📊 统计: 共 {total} 表 | "
         f"完全一致: {perfect} | 存在差异: {diff} | "
-        f"DEV缺失: {dev_miss} | 标准化缺失: {std_miss}",
-        file=out,
+        f"DEV缺失: {dev_miss} | 标准化缺失: {std_miss}"
     )
-    print("=" * 70, file=out)
-
+    print("=" * 70)
 
 def parse_args() -> argparse.Namespace:
     """解析命令行参数"""
@@ -546,9 +536,7 @@ def parse_args() -> argparse.Namespace:
 
     return parser.parse_args()
 
-
 # ========== 主入口 ==========
-
 
 def main() -> None:
     args = parse_args()
@@ -597,7 +585,6 @@ def main() -> None:
     if not console_only:
         write_excel(results, output_path)
     print_summary(results)
-
 
 if __name__ == "__main__":
     main()
