@@ -29,7 +29,13 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 
-import openpyxl
+try:
+    import openpyxl
+except ImportError:
+    sys.exit(
+        "缺少依赖 openpyxl，请先安装：\n"
+        "  pip install openpyxl\n"
+    )
 
 # ── 导入 Excel 样式（项目本地，由 Tools/excel_styles/generate.py 生成） ──
 from excel_style import (

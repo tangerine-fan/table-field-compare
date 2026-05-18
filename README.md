@@ -9,7 +9,7 @@
 ```bash
 git clone https://github.com/tangerine-fan/table-field-compare.git
 cd table-field-compare
-pip install openpyxl
+pip install -r requirements.txt    # 安装 openpyxl
 python src/table_field_compare.py TEST_DEV.xlsx standard.xlsx -o result.xlsx
 ```
 
