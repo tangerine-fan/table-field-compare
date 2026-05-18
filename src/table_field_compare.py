@@ -72,69 +72,6 @@ DEFAULT_EXCLUDE_FIELDS = {"DEL_FLG", "ETL_TM_STMP", "PART_DT", "SRC_SYS_CD"}
 # 数据行搜索上限（防止死循环）
 MAX_DATA_SEARCH_ROWS = 200
 
-# ========== 字体自动检测 ==========
-
-
-def _detect_cjk_font() -> str:
-    """
-    检测系统可用的中文字体，按优先级回退。
-    优先级: 微软雅黑 > SimHei > SimSun > Noto Sans CJK SC > Droid Sans Fallback > 系统默认
-    """
-    _FONT_CANDIDATES = [
-        "微软雅黑",
-        "Microsoft YaHei",
-        "SimHei",
-        "SimSun",
-        "Noto Sans CJK SC",
-        "Noto Sans CJK TC",
-        "WenQuanYi Micro Hei",
-        "WenQuanYi Zen Hei",
-        "Droid Sans Fallback",
-        "Arial Unicode MS",
-    ]
-    # openpyxl 不提供字体检测 API，这里按平台策略选择
-    import platform
-
-    system = platform.system()
-    if system == "Windows":
-        # Windows 通常有微软雅黑
-        return "微软雅黑"
-    elif system == "Darwin":
-        return "PingFang SC"
-    else:
-        # Linux: 尝试 fc-list 检测
-        import subprocess
-
-        try:
-            result = subprocess.run(
-                ["fc-list", ":lang=zh", "-f", "%{family}\n"],
-                capture_output=True, text=True, timeout=3,
-            )
-            installed = set(result.stdout.strip().split("\n"))
-            for candidate in _FONT_CANDIDATES:
-                if candidate in installed:
-                    logger.debug("检测到中文字体: %s", candidate)
-                    return candidate
-        except Exception:
-            pass
-        # 回退
-        return "Noto Sans CJK SC"
-
-
-FONT_NAME = _detect_cjk_font()
-logger.info("使用字体: %s", FONT_NAME)
-
-# 用运行时检测到的字体覆盖生成的默认字体名
-for _obj in [
-    HEADER_FONT, BODY_FONT, SUMMARY_FONT,
-    *STATUS_FONTS.values(), *SOURCE_FONTS.values(),
-]:
-    _obj.name = FONT_NAME
-
-# 移除不再使用的导入，清理命名空间
-del _obj
-
-
 # ========== 核心函数 ==========
 
 

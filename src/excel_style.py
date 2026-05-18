@@ -105,3 +105,40 @@ def style_summary_row(ws, row, col_count, text):
     cell.border = THIN_BORDER
     for col_idx in range(2, col_count + 1):
         ws.cell(row=row, column=col_idx).border = THIN_BORDER
+
+
+# ── 跨平台字体检测（导入时自动执行） ──
+
+def _detect_cjk_font():
+    """检测系统可用的中文字体，按优先级回退。"""
+    import platform
+    import subprocess
+
+    system = platform.system()
+    if system == "Windows":
+        return "微软雅黑"
+    elif system == "Darwin":
+        return "PingFang SC"
+    else:
+        try:
+            result = subprocess.run(
+                ["fc-list", ":lang=zh", "-f", "%{family}\n"],
+                capture_output=True, text=True, timeout=3,
+            )
+            installed = set(result.stdout.strip().split("\n"))
+            for candidate in [
+                "微软雅黑", "Microsoft YaHei", "SimHei", "SimSun",
+                "Noto Sans CJK SC", "Noto Sans CJK TC",
+                "WenQuanYi Micro Hei", "Droid Sans Fallback",
+            ]:
+                if candidate in installed:
+                    return candidate
+        except Exception:
+            pass
+        return "Noto Sans CJK SC"
+
+
+_detected_font = _detect_cjk_font()
+for _f in [HEADER_FONT, BODY_FONT, SUMMARY_FONT,
+           *STATUS_FONTS.values(), *SOURCE_FONTS.values()]:
+    _f.name = _detected_font
