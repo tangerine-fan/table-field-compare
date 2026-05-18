@@ -1,9 +1,9 @@
-#!/usr/bin/env python3
 """
 table_field_compare 测试套件
 用法:
-    python tests/test_table_field_compare.py
-    python tests/test_table_field_compare.py -v   # 详细
+    pip install pytest
+    pytest tests/ -v
+    pytest tests/ -v --tb=long
 """
 from __future__ import annotations
 
@@ -11,20 +11,66 @@ import os
 import subprocess
 import sys
 import tempfile
-import unittest
 from pathlib import Path
 
 import openpyxl
+import pytest
 
-# ── 定位脚本 ──
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = PROJECT_ROOT / "src" / "table_field_compare.py"
 
-# ── 测试数据工厂 ──
+
+# ── Fixtures ──
+
+@pytest.fixture(scope="module")
+def dev_xlsx():
+    """创建 TEST_DEV 测试数据"""
+    tmpdir = tempfile.mkdtemp(prefix="tfc_")
+    path = os.path.join(tmpdir, "dev.xlsx")
+    _make_test_dev(path, {
+        "S_CCS_CCS_CARD_ACCT_MALL": ["ACCT_NO", "CARD_NO", "OVLMT_DATE", "OPN_DT", "DEL_FLG"],
+        "S_CRD_CRD_CUST_INFO_MTH": ["CUST_ID", "CUST_NAME", "PART_DT"],
+    })
+    return path
 
 
-def make_test_dev(path: str, tables: dict[str, list[str]]) -> str:
-    """创建 TEST_DEV 格式的 Excel 文件"""
+@pytest.fixture(scope="module")
+def std_xlsx():
+    """创建标准化测试数据"""
+    tmpdir = tempfile.mkdtemp(prefix="tfc_")
+    path = os.path.join(tmpdir, "std.xlsx")
+    _make_std_file(path, {
+        "CCS_CARD_ACCT": ["ACCT_NO", "CARD_NO", "OVLMT_DATE", "CARD_STS"],
+        "CRD_CUST_INFO": ["CUST_ID", "CUST_NAME", "BIRTH_DT"],
+    })
+    return path
+
+
+@pytest.fixture(scope="module")
+def empty_dev_xlsx():
+    tmpdir = tempfile.mkdtemp(prefix="tfc_")
+    path = os.path.join(tmpdir, "empty_dev.xlsx")
+    _make_test_dev(path, {})
+    return path
+
+
+@pytest.fixture(scope="module")
+def empty_std_xlsx():
+    tmpdir = tempfile.mkdtemp(prefix="tfc_")
+    path = os.path.join(tmpdir, "empty_std.xlsx")
+    _make_std_file(path, {})
+    return path
+
+
+@pytest.fixture
+def out_xlsx():
+    """临时输出文件"""
+    return os.path.join(tempfile.mkdtemp(prefix="tfc_out_"), "result.xlsx")
+
+
+# ── 数据工厂 ──
+
+def _make_test_dev(path, tables):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "字段信息"
@@ -41,8 +87,7 @@ def make_test_dev(path: str, tables: dict[str, list[str]]) -> str:
     return path
 
 
-def make_std_file(path: str, tables: dict[str, list[str]]) -> str:
-    """创建标准化映射 Excel 文件"""
+def _make_std_file(path, tables):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "标准化字段映射"
@@ -60,129 +105,88 @@ def make_std_file(path: str, tables: dict[str, list[str]]) -> str:
     return path
 
 
-def run(*args: str, expect_ok: bool = True) -> subprocess.CompletedProcess:
-    """运行脚本并检查退出码"""
+# ── 运行辅助 ──
+
+def run(*args, expect_ok=True):
+    """运行脚本，失败时附带完整 stderr"""
     result = subprocess.run(
         [sys.executable, str(SCRIPT)] + list(args),
         capture_output=True, text=True, timeout=30,
     )
     if expect_ok and result.returncode != 0:
+        # pytest 会展示这段信息，不用藏着了
         raise AssertionError(
-            f"脚本返回 {result.returncode}\nSTDERR: {result.stderr[:500]}"
+            f"脚本返回 {result.returncode}\n"
+            f"=== STDERR ===\n{result.stderr}\n"
+            f"=== STDOUT ===\n{result.stdout[-500:]}"
         )
     return result
 
 
-# ── 测试用例 ──
+# ── 测试 ──
+
+class TestNormalRun:
+    """正常场景"""
+
+    def test_generates_excel(self, dev_xlsx, std_xlsx, out_xlsx):
+        result = run(dev_xlsx, std_xlsx, "-o", out_xlsx)
+        assert os.path.exists(out_xlsx)
+        assert "统计" in result.stdout
+
+    def test_output_structure(self, dev_xlsx, std_xlsx, out_xlsx):
+        run(dev_xlsx, std_xlsx, "-o", out_xlsx)
+        wb = openpyxl.load_workbook(out_xlsx)
+        assert wb.sheetnames == ["汇总对比", "字段级详细对比"]
+
+    def test_summary_content(self, dev_xlsx, std_xlsx, out_xlsx):
+        run(dev_xlsx, std_xlsx, "-o", out_xlsx)
+        ws = openpyxl.load_workbook(out_xlsx)["汇总对比"]
+        assert ws.cell(row=1, column=1).value == "标准表名"
+        assert ws.cell(row=2, column=1).value == "CCS_CARD_ACCT"
+        assert ws.cell(row=2, column=5).value == "存在差异"
+
+    def test_hermes_blue_style(self, dev_xlsx, std_xlsx, out_xlsx):
+        run(dev_xlsx, std_xlsx, "-o", out_xlsx)
+        ws = openpyxl.load_workbook(out_xlsx)["汇总对比"]
+        fill = ws.cell(row=1, column=1).fill.start_color.rgb
+        assert fill == "004472C4", f"期望 004472C4，实际 {fill}"
 
 
-class TestCoreFunctionality(unittest.TestCase):
-    """核心功能测试"""
+class TestEdgeCases:
+    """边界情况"""
 
-    @classmethod
-    def setUpClass(cls):
-        cls.tmpdir = tempfile.mkdtemp(prefix="tfc_test_")
+    def test_exclude_fields(self, dev_xlsx, std_xlsx, out_xlsx):
+        run(dev_xlsx, std_xlsx, "-o", out_xlsx, "--exclude", "DEL_FLG,PART_DT")
+        ws = openpyxl.load_workbook(out_xlsx)["汇总对比"]
+        assert ws.cell(row=2, column=4).value == 4  # CCS_CARD_ACCT 排除 DEL_FLG 后剩 4 个
 
-        # 正常数据
-        cls.dev_path = os.path.join(cls.tmpdir, "dev.xlsx")
-        make_test_dev(cls.dev_path, {
-            "S_CCS_CCS_CARD_ACCT_MALL": ["ACCT_NO", "CARD_NO", "OVLMT_DATE", "OPN_DT", "DEL_FLG"],
-            "S_CRD_CRD_CUST_INFO_MTH": ["CUST_ID", "CUST_NAME", "PART_DT"],
-        })
+    def test_console_only(self, dev_xlsx, std_xlsx, out_xlsx):
+        run(dev_xlsx, std_xlsx, "-o", out_xlsx, "--console-only")
+        assert not os.path.exists(out_xlsx), "--console-only 不应生成文件"
 
-        cls.std_path = os.path.join(cls.tmpdir, "std.xlsx")
-        make_std_file(cls.std_path, {
-            "CCS_CARD_ACCT": ["ACCT_NO", "CARD_NO", "OVLMT_DATE", "CARD_STS"],
-            "CRD_CUST_INFO": ["CUST_ID", "CUST_NAME", "BIRTH_DT"],
-        })
+    def test_empty_dev(self, empty_dev_xlsx, std_xlsx, out_xlsx):
+        result = run(empty_dev_xlsx, std_xlsx, "-o", out_xlsx)
+        assert "DEV缺失" in result.stdout
 
-        # 空 DEV
-        cls.empty_dev = os.path.join(cls.tmpdir, "empty_dev.xlsx")
-        make_test_dev(cls.empty_dev, {})
+    def test_empty_std(self, dev_xlsx, empty_std_xlsx, out_xlsx):
+        result = run(dev_xlsx, empty_std_xlsx, "-o", out_xlsx)
+        assert "标准化缺失" in result.stdout
 
-        cls.empty_std = os.path.join(cls.tmpdir, "empty_std.xlsx")
-        make_std_file(cls.empty_std, {})
-
-    def test_normal_run(self):
-        """正常对比生成 Excel"""
-        output = os.path.join(self.tmpdir, "result.xlsx")
-        result = run(str(self.dev_path), str(self.std_path), "-o", output)
-        self.assertIn("统计", result.stdout)
-        self.assertTrue(os.path.exists(output))
-
-    def test_output_content(self):
-        """验证输出 Excel 内容正确"""
-        output = os.path.join(self.tmpdir, "result_content.xlsx")
-        run(str(self.dev_path), str(self.std_path), "-o", output)
-
-        wb = openpyxl.load_workbook(output)
-        self.assertEqual(wb.sheetnames, ["汇总对比", "字段级详细对比"])
-
-        ws1 = wb["汇总对比"]
-        # 表头
-        self.assertEqual(ws1.cell(row=1, column=1).value, "标准表名")
-        # CCS_CARD_ACCT: 存在差异
-        self.assertEqual(ws1.cell(row=2, column=1).value, "CCS_CARD_ACCT")
-        self.assertEqual(ws1.cell(row=2, column=5).value, "存在差异")
-        # CRD_CUST_INFO: 存在差异
-        self.assertEqual(ws1.cell(row=3, column=1).value, "CRD_CUST_INFO")
-
-    def test_exclude_fields(self):
-        """排除字段过滤"""
-        output = os.path.join(self.tmpdir, "result_exclude.xlsx")
-        run(str(self.dev_path), str(self.std_path), "-o", output,
-            "--exclude", "DEL_FLG,PART_DT")
-        wb = openpyxl.load_workbook(output)
-        ws1 = wb["汇总对比"]
-        # CCS_CARD_ACCT DEV字段数应该是 4（排除了 DEL_FLG）
-        self.assertEqual(ws1.cell(row=2, column=4).value, 4)
-
-    def test_console_only(self):
-        """--console-only 不生成文件"""
-        output = os.path.join(self.tmpdir, "should_not_exist.xlsx")
-        run(str(self.dev_path), str(self.std_path), "-o", output, "--console-only")
-        self.assertFalse(os.path.exists(output))
-
-    def test_empty_dev(self):
-        """空 DEV 文件"""
-        output = os.path.join(self.tmpdir, "result_empty_dev.xlsx")
-        result = run(str(self.empty_dev), str(self.std_path), "-o", output)
-        self.assertIn("DEV缺失", result.stdout)
-
-    def test_empty_std(self):
-        """空标准文件，DEV 有数据"""
-        output = os.path.join(self.tmpdir, "result_empty_std.xlsx")
-        result = run(str(self.dev_path), str(self.empty_std), "-o", output)
-        self.assertIn("标准化缺失", result.stdout)
-
-    def test_file_not_found(self):
-        """文件不存在应报错"""
-        result = run(
-            "/tmp/nonexistent_12345.xlsx",
-            str(self.std_path),
-            "-o", os.path.join(self.tmpdir, "nope.xlsx"),
-            expect_ok=False,
-        )
-        self.assertNotEqual(result.returncode, 0)
-
-    def test_style_hermes_blue(self):
-        """输出使用 hermes_blue 主题"""
-        output = os.path.join(self.tmpdir, "style_check.xlsx")
-        run(str(self.dev_path), str(self.std_path), "-o", output)
-        wb = openpyxl.load_workbook(output)
-        fill = wb["汇总对比"].cell(row=1, column=1).fill.start_color.rgb
-        self.assertEqual(fill, "004472C4")
+    def test_file_not_found(self, out_xlsx):
+        result = run("/tmp/nonexistent_12345.xlsx", "/tmp/also_nope.xlsx",
+                     "-o", out_xlsx, expect_ok=False)
+        assert result.returncode != 0
 
 
-class TestCLI(unittest.TestCase):
-    """命令行界面测试"""
+class TestCLI:
+    """命令行"""
 
     def test_help(self):
         result = run("--help")
-        self.assertIn("--exclude", result.stdout)
-        self.assertIn("--console-only", result.stdout)
-        self.assertNotIn("--theme", result.stdout)  # 主题不可运行时切换
+        assert "--exclude" in result.stdout
+        assert "--console-only" in result.stdout
+        assert "--theme" not in result.stdout  # 不支持运行时切换
 
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    def test_missing_args(self):
+        result = run(expect_ok=False)
+        assert result.returncode != 0

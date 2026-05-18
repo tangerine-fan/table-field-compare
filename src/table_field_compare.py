@@ -29,6 +29,11 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 
+# ── Windows 控制台中文编码兼容 ──
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 try:
     import openpyxl
 except ImportError:
