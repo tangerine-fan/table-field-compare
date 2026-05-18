@@ -29,10 +29,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 
-# ── 跨平台中文输出兼容 ──
-if sys.platform == "win32":
-    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
-
 try:
     import openpyxl
 except ImportError:
@@ -464,38 +460,39 @@ def write_excel(results: list[dict], output_path: str) -> None:
 
 
 def print_summary(results: list[dict]) -> None:
-    """在控制台打印对比结果摘要"""
-    print("\n" + "=" * 70)
-    print("对比结果摘要")
-    print("=" * 70)
+    """在控制台打印对比结果摘要（输出到 stderr，避免平台编码问题）"""
+    out = sys.stderr
+    print("\n" + "=" * 70, file=out)
+    print("对比结果摘要", file=out)
+    print("=" * 70, file=out)
 
     for r in results:
-        print(f"\n  表: {r['标准表名']} ({r['DEV原表名']})")
-        print(f"    标准化字段数: {r['标准化字段数']}")
-        print(f"    DEV字段数（已排除指定字段）: {r['DEV字段数']}")
-        print(f"    对比结果: {r['对比结果']}")
+        print(f"\n  表: {r['标准表名']} ({r['DEV原表名']})", file=out)
+        print(f"    标准化字段数: {r['标准化字段数']}", file=out)
+        print(f"    DEV字段数（已排除指定字段）: {r['DEV字段数']}", file=out)
+        print(f"    对比结果: {r['对比结果']}", file=out)
 
         if r["对比结果"] == "存在差异":
-            print(f"    两边共有: {len(r['_common'])} 个")
-            print(f"    标准化独有: {len(r['_only_std'])} 个 -> {r['_only_std']}")
-            print(f"    DEV独有: {len(r['_only_dev'])} 个 -> {r['_only_dev']}")
+            print(f"    两边共有: {len(r['_common'])} 个", file=out)
+            print(f"    标准化独有: {len(r['_only_std'])} 个 -> {r['_only_std']}", file=out)
+            print(f"    DEV独有: {len(r['_only_dev'])} 个 -> {r['_only_dev']}", file=out)
 
-        print(f"    差异说明: {r['差异说明']}")
+        print(f"    差异说明: {r['差异说明']}", file=out)
 
-    # 统计汇总
     total = len(results)
     perfect = sum(1 for r in results if r["对比结果"] == "完全一致")
     diff = sum(1 for r in results if r["对比结果"] == "存在差异")
     dev_miss = sum(1 for r in results if r["对比结果"] == "DEV缺失")
     std_miss = sum(1 for r in results if r["对比结果"] == "标准化缺失")
 
-    print("\n" + "=" * 70)
+    print("\n" + "=" * 70, file=out)
     print(
         f"📊 统计: 共 {total} 表 | "
         f"完全一致: {perfect} | 存在差异: {diff} | "
-        f"DEV缺失: {dev_miss} | 标准化缺失: {std_miss}"
+        f"DEV缺失: {dev_miss} | 标准化缺失: {std_miss}",
+        file=out,
     )
-    print("=" * 70)
+    print("=" * 70, file=out)
 
 
 def parse_args() -> argparse.Namespace:

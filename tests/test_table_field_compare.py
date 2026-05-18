@@ -109,19 +109,16 @@ def _make_std_file(path, tables):
 
 def run(*args, expect_ok=True):
     """运行脚本，失败时附带完整 stderr"""
-    env = os.environ.copy()
-    env.setdefault("PYTHONIOENCODING", "utf-8")
     result = subprocess.run(
         [sys.executable, str(SCRIPT)] + list(args),
         capture_output=True, text=True, timeout=30,
-        env=env,
     )
     if expect_ok and result.returncode != 0:
         # pytest 会展示这段信息，不用藏着了
         raise AssertionError(
             f"脚本返回 {result.returncode}\n"
             f"=== STDERR ===\n{result.stderr}\n"
-            f"=== STDOUT ===\n{result.stdout[-500:]}"
+            f"=== STDOUT ===\n{result.stderr[-500:]}"
         )
     return result
 
@@ -134,7 +131,7 @@ class TestNormalRun:
     def test_generates_excel(self, dev_xlsx, std_xlsx, out_xlsx):
         result = run(dev_xlsx, std_xlsx, "-o", out_xlsx)
         assert os.path.exists(out_xlsx)
-        assert "统计" in result.stdout
+        assert "统计" in result.stderr
 
     def test_output_structure(self, dev_xlsx, std_xlsx, out_xlsx):
         run(dev_xlsx, std_xlsx, "-o", out_xlsx)
@@ -169,11 +166,11 @@ class TestEdgeCases:
 
     def test_empty_dev(self, empty_dev_xlsx, std_xlsx, out_xlsx):
         result = run(empty_dev_xlsx, std_xlsx, "-o", out_xlsx)
-        assert "DEV缺失" in result.stdout
+        assert "DEV缺失" in result.stderr
 
     def test_empty_std(self, dev_xlsx, empty_std_xlsx, out_xlsx):
         result = run(dev_xlsx, empty_std_xlsx, "-o", out_xlsx)
-        assert "标准化缺失" in result.stdout
+        assert "标准化缺失" in result.stderr
 
     def test_file_not_found(self, out_xlsx):
         result = run("/tmp/nonexistent_12345.xlsx", "/tmp/also_nope.xlsx",
@@ -186,9 +183,10 @@ class TestCLI:
 
     def test_help(self):
         result = run("--help")
-        assert "--exclude" in result.stdout
-        assert "--console-only" in result.stdout
-        assert "--theme" not in result.stdout  # 不支持运行时切换
+        output = result.stdout + result.stderr  # argparse help 在 stdout
+        assert "--exclude" in output
+        assert "--console-only" in output
+        assert "--theme" not in output  # 不支持运行时切换
 
     def test_missing_args(self):
         result = run(expect_ok=False)
