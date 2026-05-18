@@ -287,6 +287,10 @@ def read_standard_file(filepath: str) -> dict[str, list[str]]:
         if best_col is not None and best_score > 0:
             field_idx = best_col
         else:
+            # 如果没有任何数据行，返回空表（文件只有表头）
+            if len(sample_rows) == 0 or all(all(c is None for c in sr) for sr in sample_rows):
+                logger.warning("标准化文件无数据行，返回空表")
+                return {}
             raise ValueError(
                 f"无法定位字段列，请检查文件格式。\n"
                 f"表头: {list(header[:8])}\n"
