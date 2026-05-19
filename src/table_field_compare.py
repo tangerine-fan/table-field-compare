@@ -410,28 +410,37 @@ def compare_fields(
         std_name = extract_std_name(dev_name)
         dev_cn_by_std[std_name].update(fields)
 
-    # 构建 DEV 侧: std_name -> dev_info（附带上 schema）
+    # 构建 DEV 侧: (系统名, 标准表名) -> dev_info
     dev_schemas = dev_schemas or {}
-    dev_by_std: dict[str, dict] = {}
+    dev_by_key: dict[tuple[str, str], dict] = {}
     for dev_name, fields in dev_tables_raw.items():
         std_name = extract_std_name(dev_name)
         schema = dev_schemas.get(dev_name, "")
+        schema_trimmed = schema[:-3] if len(schema) > 3 else schema
         filtered_fields = [f for f in fields if f not in exclude_fields]
-        dev_by_std[std_name] = {"dev_name": dev_name, "fields": filtered_fields, "schema": schema}
+        key = (schema_trimmed, std_name)
+        dev_by_key[key] = {"dev_name": dev_name, "fields": filtered_fields}
 
-    # 标准化侧: std_name -> mode
+    # 标准化侧: (系统名, 标准表名) -> field_list
     std_modes = std_modes or {}
+    std_by_key: dict[tuple[str, str], list[str]] = {}
+    std_mode_map: dict[tuple[str, str], str] = {}
+    for std_name, fields in std_tables.items():
+        mode = std_modes.get(std_name, "")
+        mode_trimmed = mode[:-3] if len(mode) > 3 else mode
+        key = (mode_trimmed, std_name)
+        std_by_key[key] = fields
+        std_mode_map[key] = mode  # 保留原始模式名用于展示
 
-    # 取两边表名的并集
-    all_tables = sorted(set(dev_by_std.keys()) | set(std_tables.keys()))
+    # 取两边 key 的并集
+    all_keys = sorted(set(dev_by_key.keys()) | set(std_by_key.keys()))
 
     results: list[dict] = []
-    for std_name in all_tables:
-        dev_info = dev_by_std.get(std_name)
-        std_fields_list = std_tables.get(std_name)
-        # 模式取值：优先 DEV 的 schema，回退标准化的 mode
-        mode = (dev_info["schema"] if dev_info and dev_info["schema"] else 
-                std_modes.get(std_name, ""))
+    for key in all_keys:
+        sys_name, std_name = key
+        dev_info = dev_by_key.get(key)
+        std_fields_list = std_by_key.get(key)
+        mode = std_mode_map.get(key, sys_name)
 
         dev_name = dev_info["dev_name"] if dev_info else None
         dev_field_count = len(dev_info["fields"]) if dev_info else 0
