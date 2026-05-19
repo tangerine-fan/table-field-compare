@@ -152,9 +152,10 @@ class TestNormalRun:
         assert fill == "004472C4", f"期望 004472C4，实际 {fill}"
 
     def test_chinese_names(self, dev_xlsx, out_xlsx):
-        """中文名从标准化文件读取并显示"""
-        # 创建带中文名列的标准文件
+        """两边中文名独立展示"""
         tmpdir = os.path.dirname(out_xlsx)
+
+        # 创建带中文名的标准文件
         std_with_cn = os.path.join(tmpdir, "std_with_cn.xlsx")
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -178,20 +179,59 @@ class TestNormalRun:
             ws.cell(row=i, column=4, value=cn)
         wb.save(std_with_cn)
 
-        run(dev_xlsx, std_with_cn, "-o", out_xlsx)
+        # 创建带中文名的 DEV 文件
+        dev_with_cn = os.path.join(tmpdir, "dev_with_cn.xlsx")
+        wb2 = openpyxl.Workbook()
+        ws2 = wb2.active
+        ws2.title = "字段信息"
+        ws2.cell(row=1, column=1, value="SCHEMA标识")
+        ws2.cell(row=1, column=2, value="表名")
+        ws2.cell(row=1, column=3, value="字段名")
+        ws2.cell(row=1, column=4, value="字段中文名")
+        dev_data = [
+            ("S_CCS_CCS_CARD_ACCT_MALL", "ACCT_NO", "账号"),
+            ("S_CCS_CCS_CARD_ACCT_MALL", "CARD_NO", "卡号码"),
+            ("S_CCS_CCS_CARD_ACCT_MALL", "OVLMT_DATE", "超限日"),
+            ("S_CCS_CCS_CARD_ACCT_MALL", "OPN_DT", "开户日期"),
+            ("S_CCS_CCS_CARD_ACCT_MALL", "DEL_FLG", "删除标志"),
+            ("S_CRD_CRD_CUST_INFO_MTH", "CUST_ID", "客户编号"),
+            ("S_CRD_CRD_CUST_INFO_MTH", "CUST_NAME", "客户名"),
+            ("S_CRD_CRD_CUST_INFO_MTH", "PART_DT", "分区日期"),
+        ]
+        for i, (t, f, cn) in enumerate(dev_data, 2):
+            ws2.cell(row=i, column=2, value=t)
+            ws2.cell(row=i, column=3, value=f)
+            ws2.cell(row=i, column=4, value=cn)
+        wb2.save(dev_with_cn)
+
+        run(dev_with_cn, std_with_cn, "-o", out_xlsx)
         wb_out = openpyxl.load_workbook(out_xlsx)
-        ws2 = wb_out["字段级详细对比"]
-        # 检查中文名列存在
-        assert ws2.cell(row=1, column=4).value == "字段中文名"
-        # 检查具体值
-        cn_values = {}
-        for row in range(2, ws2.max_row + 1):
-            field = ws2.cell(row=row, column=3).value
-            cn = ws2.cell(row=row, column=4).value
-            if field and cn:
-                cn_values[field] = cn
-        assert cn_values.get("ACCT_NO") == "账户号"
-        assert cn_values.get("CARD_NO") == "卡号"
+        ws_out = wb_out["字段级详细对比"]
+
+        # 检查6列
+        assert ws_out.cell(row=1, column=1).value == "标准表名"
+        assert ws_out.cell(row=1, column=4).value == "标准化中文名"
+        assert ws_out.cell(row=1, column=5).value == "DEV中文名"
+        assert ws_out.cell(row=1, column=6).value == "字段来源"
+
+        # 检查具体值: 两边共有的字段
+        for row in range(2, ws_out.max_row + 1):
+            field = ws_out.cell(row=row, column=3).value
+            std_cn = ws_out.cell(row=row, column=4).value or ""
+            dev_cn = ws_out.cell(row=row, column=5).value or ""
+            if field == "ACCT_NO":
+                assert std_cn == "账户号", f"std cn: {std_cn}"
+                assert dev_cn == "账号", f"dev cn: {dev_cn}"
+                break
+
+        # 检查 DEV 独有的字段有 DEV 中文名
+        for row in range(2, ws_out.max_row + 1):
+            field = ws_out.cell(row=row, column=3).value
+            source = ws_out.cell(row=row, column=6).value
+            dev_cn = ws_out.cell(row=row, column=5).value or ""
+            if field == "OPN_DT" and source == "仅DEV有":
+                assert dev_cn == "开户日期", f"dev cn: {dev_cn}"
+                break
 
 
 class TestEdgeCases:
