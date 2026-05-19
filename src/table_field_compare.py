@@ -263,7 +263,7 @@ def read_standard_file(filepath: str) -> dict[str, list[str]]:
             # 如果没有任何数据行，返回空表（文件只有表头）
             if len(sample_rows) == 0 or all(all(c is None for c in sr) for sr in sample_rows):
                 logger.warning("标准化文件无数据行，返回空表")
-                return {}, {}, {}
+                return {}, {}
             raise ValueError(
                 f"无法定位字段列，请检查文件格式。\n"
                 f"表头: {list(header[:8])}\n"
@@ -295,23 +295,29 @@ def read_standard_file(filepath: str) -> dict[str, list[str]]:
     if mode_idx is None and len(header) > 24:
         mode_idx = 24
 
-    # 收集数据
-    tables: dict[str, list[str]] = defaultdict(list)
-    cn_names: dict[str, dict[str, str]] = defaultdict(dict)
-    std_modes: dict[str, str] = {}
+    # 收集数据 — 按 (模式, 表名) 分组
+    tables: dict[tuple[str, str], list[str]] = defaultdict(list)  # (mode, table) -> [fields]
+    cn_names: dict[tuple[str, str], dict[str, str]] = defaultdict(dict)
     for row in rows[header_row_idx + 1 :]:
         table = str(row[table_idx]).strip() if row[table_idx] else None
         field = str(row[field_idx]).strip() if row[field_idx] else None
         cn_name = str(row[cn_col]).strip() if cn_col is not None and row[cn_col] else ""
         mode = str(row[mode_idx]).strip() if mode_idx is not None and row[mode_idx] else ""
         if table and field:
-            tables[table].append(field)
+            key = (mode, table)
+            tables[key].append(field)
             if cn_name:
-                cn_names[table][field] = cn_name
-            if mode and table not in std_modes:
-                std_modes[table] = mode
+                cn_names[key][field] = cn_name
 
-    return dict(tables), dict(cn_names), std_modes
+    # 转换为 {mode: {table: [fields]}} 便于 compare_fields 使用
+    table_tree: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    cn_tree: dict[str, dict[str, dict[str, str]]] = defaultdict(lambda: defaultdict(dict))
+    for (mode, table), fields in tables.items():
+        table_tree[mode][table] = fields
+    for (mode, table), field_cn in cn_names.items():
+        cn_tree[mode][table] = field_cn
+
+    return table_tree, cn_tree
 
 def read_cn_map(filepath: str) -> dict[str, dict[str, str]]:
     """读取中文名映射文件，格式：表名 | 字段名 | 中文名。返回 {table: {field: cn_name}}。"""
@@ -385,24 +391,26 @@ def extract_std_name(dev_table_name: str) -> str:
 
 def compare_fields(
     dev_tables_raw: dict[str, list[str]],
-    std_tables: dict[str, list[str]],
+    std_table_tree: dict[str, dict[str, list[str]]],
     exclude_fields: set[str],
     dev_schemas: dict[str, str] | None = None,
-    std_modes: dict[str, str] | None = None,
     dev_cn_names: dict[str, dict[str, str]] | None = None,
-    std_cn_names: dict[str, dict[str, str]] | None = None,
+    std_cn_tree: dict[str, dict[str, dict[str, str]]] | None = None,
     cn_map: dict[str, dict[str, str]] | None = None,
 ) -> list[dict]:
     """
-    对比两边的字段，返回对比结果列表。用 (模式, 标准表名) 作为匹配键。
-    dev_schemas: DEV中每张表的 SCHEMA标识 {dev_table_name: schema}
-    std_modes: 标准化中每张表的 模式名 {std_table_name: mode}
+    对比两边的字段，返回对比结果列表。用 (系统名, 标准表名) 作为匹配键。
+    std_table_tree: {mode: {std_table: [fields]}} — 按模式名分组
     """
-    # 合并标准化侧中文名：映射文件优先，标准化文件补充
-    std_merged_cn: dict[str, dict[str, str]] = defaultdict(dict)
-    for src in [std_cn_names or {}, cn_map or {}]:
-        for table, fields in src.items():
-            std_merged_cn[table].update(fields)
+    # 合并标准化侧中文名（按模式分组）
+    std_merged_cn: dict[tuple[str, str], dict[str, str]] = defaultdict(dict)
+    for mode, tables in (std_cn_tree or {}).items():
+        mode_trimmed = mode[:-3] if len(mode) > 3 else mode
+        for table, fields in tables.items():
+            std_merged_cn[(mode_trimmed, table)].update(fields)
+    # 映射文件补充（映射文件没有模式，用空串）
+    for table, fields in (cn_map or {}).items():
+        std_merged_cn[("", table)].update(fields)
 
     # 将 DEV 中文名 key 从原始表名转换为标准表名
     dev_cn_by_std: dict[str, dict[str, str]] = defaultdict(dict)
@@ -422,15 +430,14 @@ def compare_fields(
         dev_by_key[key] = {"dev_name": dev_name, "fields": filtered_fields}
 
     # 标准化侧: (系统名, 标准表名) -> field_list
-    std_modes = std_modes or {}
     std_by_key: dict[tuple[str, str], list[str]] = {}
     std_mode_map: dict[tuple[str, str], str] = {}
-    for std_name, fields in std_tables.items():
-        mode = std_modes.get(std_name, "")
+    for mode, tables in std_table_tree.items():
         mode_trimmed = mode[:-3] if len(mode) > 3 else mode
-        key = (mode_trimmed, std_name)
-        std_by_key[key] = fields
-        std_mode_map[key] = mode  # 保留原始模式名用于展示
+        for std_name, fields in tables.items():
+            key = (mode_trimmed, std_name)
+            std_by_key[key] = fields
+            std_mode_map[key] = mode  # 保留原始模式名用于展示
 
     # 取两边 key 的并集
     all_keys = sorted(set(dev_by_key.keys()) | set(std_by_key.keys()))
@@ -495,7 +502,7 @@ def compare_fields(
                 "_common": sorted(common),
                 "_only_std": sorted(only_std),
                 "_only_dev": sorted(only_dev),
-                "_std_cn_map": std_merged_cn.get(std_name, {}),
+                "_std_cn_map": std_merged_cn.get(key, {}),
                 "_dev_cn_map": dev_cn_by_std.get(std_name, {}),
             }
         )
@@ -723,8 +730,9 @@ def main() -> None:
     logger.info("  -> %d 个表", len(dev_tables))
 
     logger.info("读取标准化文件...")
-    std_tables, std_cn_names, std_modes = read_standard_file(std_path)
-    logger.info("  -> %d 个表", len(std_tables))
+    std_table_tree, std_cn_tree = read_standard_file(std_path)
+    total_std_tables = sum(len(t) for t in std_table_tree.values())
+    logger.info("  -> %d 个表", total_std_tables)
 
     # 读取中文名映射（可选）
     cn_map = None
@@ -737,7 +745,7 @@ def main() -> None:
 
     # 对比
     logger.info("执行字段对比...")
-    results = compare_fields(dev_tables, std_tables, exclude_fields, dev_schemas, std_modes, dev_cn_names, std_cn_names, cn_map)
+    results = compare_fields(dev_tables, std_table_tree, exclude_fields, dev_schemas, dev_cn_names, std_cn_tree, cn_map)
 
     # 输出
     if not console_only:
