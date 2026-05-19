@@ -137,7 +137,7 @@ def read_test_dev(filepath: str) -> dict[str, list[str]]:
 
     # 检测DEV中文名列（可选）
     dev_cn_col: Optional[int] = None
-    dev_cn_keywords = ["字段中文名", "中文名", "字段名称（中文）", "中文描述"]
+    dev_cn_keywords = ["字段中文名", "中文名", "字段名称（中文）", "中文描述", "字段描述"]
     for i, h in enumerate(header):
         if h and any(kw in str(h) for kw in dev_cn_keywords):
             dev_cn_col = i
