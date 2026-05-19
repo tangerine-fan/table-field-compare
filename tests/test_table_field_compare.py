@@ -80,6 +80,7 @@ def _make_test_dev(path, tables):
     row_idx = 2
     for table, fields in tables.items():
         for field in fields:
+            ws.cell(row=row_idx, column=1, value="CCS")  # SCHEMA标识
             ws.cell(row=row_idx, column=2, value=table)
             ws.cell(row=row_idx, column=3, value=field)
             row_idx += 1
@@ -94,12 +95,15 @@ def _make_std_file(path, tables):
     ws.cell(row=1, column=1, value="标准化字段映射表")
     ws.cell(row=2, column=2, value="表名")
     ws.cell(row=2, column=3, value="字段名称")
+    # Y列 (index 24) = 模式名
+    ws.cell(row=2, column=25, value="模式名")
     row_idx = 3
     for table, fields in tables.items():
         for field in fields:
             ws.cell(row=row_idx, column=1, value=row_idx - 2)
             ws.cell(row=row_idx, column=2, value=table)
             ws.cell(row=row_idx, column=3, value=field)
+            ws.cell(row=row_idx, column=25, value="CCS")  # 模式名
             row_idx += 1
     wb.save(path)
     return path
@@ -117,7 +121,7 @@ def run(*args, expect_ok=True):
         # pytest 会展示这段信息，不用藏着了
         raise AssertionError(
             f"脚本返回 {result.returncode}\n"
-            f"=== STDERR ===\n{result.stdout}\n"
+            f"=== STDERR ===\n{result.stderr}\n"
             f"=== STDOUT ===\n{result.stdout[-500:]}"
         )
     return result
@@ -141,9 +145,9 @@ class TestNormalRun:
     def test_summary_content(self, dev_xlsx, std_xlsx, out_xlsx):
         run(dev_xlsx, std_xlsx, "-o", out_xlsx)
         ws = openpyxl.load_workbook(out_xlsx)["汇总对比"]
-        assert ws.cell(row=1, column=1).value == "标准表名"
-        assert ws.cell(row=2, column=1).value == "CCS_CARD_ACCT"
-        assert ws.cell(row=2, column=5).value == "存在差异"
+        assert ws.cell(row=1, column=2).value == "标准表名"
+        assert ws.cell(row=2, column=2).value == "CCS_CARD_ACCT"
+        assert ws.cell(row=2, column=6).value == "存在差异"
 
     def test_hermes_blue_style(self, dev_xlsx, std_xlsx, out_xlsx):
         run(dev_xlsx, std_xlsx, "-o", out_xlsx)
@@ -164,6 +168,7 @@ class TestNormalRun:
         ws.cell(row=2, column=2, value="表名")
         ws.cell(row=2, column=3, value="字段名称")
         ws.cell(row=2, column=4, value="字段中文名")
+        ws.cell(row=2, column=25, value="模式名")
         data = [
             ("CCS_CARD_ACCT", "ACCT_NO", "账户号"),
             ("CCS_CARD_ACCT", "CARD_NO", "卡号"),
@@ -177,6 +182,7 @@ class TestNormalRun:
             ws.cell(row=i, column=2, value=t)
             ws.cell(row=i, column=3, value=f)
             ws.cell(row=i, column=4, value=cn)
+            ws.cell(row=i, column=25, value="CCS")  # 模式名
         wb.save(std_with_cn)
 
         # 创建带中文名的 DEV 文件
@@ -199,6 +205,7 @@ class TestNormalRun:
             ("S_CRD_CRD_CUST_INFO_MTH", "PART_DT", "分区日期"),
         ]
         for i, (t, f, cn) in enumerate(dev_data, 2):
+            ws2.cell(row=i, column=1, value="CCS")  # SCHEMA标识
             ws2.cell(row=i, column=2, value=t)
             ws2.cell(row=i, column=3, value=f)
             ws2.cell(row=i, column=4, value=cn)
@@ -209,16 +216,16 @@ class TestNormalRun:
         ws_out = wb_out["字段级详细对比"]
 
         # 检查6列
-        assert ws_out.cell(row=1, column=1).value == "标准表名"
-        assert ws_out.cell(row=1, column=4).value == "标准化中文名"
-        assert ws_out.cell(row=1, column=5).value == "DEV中文名"
-        assert ws_out.cell(row=1, column=6).value == "字段来源"
+        assert ws_out.cell(row=1, column=2).value == "标准表名"
+        assert ws_out.cell(row=1, column=5).value == "标准化中文名"
+        assert ws_out.cell(row=1, column=6).value == "DEV中文名"
+        assert ws_out.cell(row=1, column=7).value == "字段来源"
 
         # 检查具体值: 两边共有的字段
         for row in range(2, ws_out.max_row + 1):
-            field = ws_out.cell(row=row, column=3).value
-            std_cn = ws_out.cell(row=row, column=4).value or ""
-            dev_cn = ws_out.cell(row=row, column=5).value or ""
+            field = ws_out.cell(row=row, column=4).value
+            std_cn = ws_out.cell(row=row, column=5).value or ""
+            dev_cn = ws_out.cell(row=row, column=6).value or ""
             if field == "ACCT_NO":
                 assert std_cn == "账户号", f"std cn: {std_cn}"
                 assert dev_cn == "账号", f"dev cn: {dev_cn}"
@@ -227,8 +234,8 @@ class TestNormalRun:
         # 检查 DEV 独有的字段有 DEV 中文名
         for row in range(2, ws_out.max_row + 1):
             field = ws_out.cell(row=row, column=3).value
-            source = ws_out.cell(row=row, column=6).value
-            dev_cn = ws_out.cell(row=row, column=5).value or ""
+            source = ws_out.cell(row=row, column=7).value
+            dev_cn = ws_out.cell(row=row, column=6).value or ""
             if field == "OPN_DT" and source == "仅DEV有":
                 assert dev_cn == "开户日期", f"dev cn: {dev_cn}"
                 break
@@ -240,7 +247,7 @@ class TestEdgeCases:
     def test_exclude_fields(self, dev_xlsx, std_xlsx, out_xlsx):
         run(dev_xlsx, std_xlsx, "-o", out_xlsx, "--exclude", "DEL_FLG,PART_DT")
         ws = openpyxl.load_workbook(out_xlsx)["汇总对比"]
-        assert ws.cell(row=2, column=4).value == 4  # CCS_CARD_ACCT 排除 DEL_FLG 后剩 4 个
+        assert ws.cell(row=2, column=5).value == 4  # CCS_CARD_ACCT 排除 DEL_FLG 后剩 4 个
 
     def test_console_only(self, dev_xlsx, std_xlsx, out_xlsx):
         run(dev_xlsx, std_xlsx, "-o", out_xlsx, "--console-only")

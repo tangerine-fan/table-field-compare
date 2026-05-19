@@ -142,21 +142,32 @@ def read_test_dev(filepath: str) -> dict[str, list[str]]:
         if h and any(kw in str(h) for kw in dev_cn_keywords):
             dev_cn_col = i
             break
-    logger.info("TEST_DEV: 表名在列%d，字段名在列%d，中文名在列%d", table_idx, field_idx, dev_cn_col)
+    logger.info("TEST_DEV: 表名在列%s，字段名在列%s，中文名在列%s", table_idx, field_idx, dev_cn_col)
+
+    # 检测 SCHEMA标识 列的位置（通常在 A列）
+    schema_idx: Optional[int] = None
+    for i, h in enumerate(header):
+        if h and "SCHEMA标识" in str(h):
+            schema_idx = i
+            break
 
     # 收集数据
     tables: dict[str, list[str]] = defaultdict(list)
     cn_names: dict[str, dict[str, str]] = defaultdict(dict)
+    dev_schemas: dict[str, str] = {}
     for row in rows[data_start:]:
         table = str(row[table_idx]).strip() if row[table_idx] else None
+        schema = str(row[schema_idx]).strip() if schema_idx is not None and row[schema_idx] else ""
         field = str(row[field_idx]).strip() if row[field_idx] else None
         cn_name = str(row[dev_cn_col]).strip() if dev_cn_col is not None and row[dev_cn_col] else ""
         if table and field:
             tables[table].append(field)
             if cn_name:
                 cn_names[table][field] = cn_name
+            if schema and table not in dev_schemas:
+                dev_schemas[table] = schema
 
-    return dict(tables), dict(cn_names)
+    return dict(tables), dict(cn_names), dev_schemas
 
 def is_field_name(value) -> bool:
     """
@@ -252,7 +263,7 @@ def read_standard_file(filepath: str) -> dict[str, list[str]]:
             # 如果没有任何数据行，返回空表（文件只有表头）
             if len(sample_rows) == 0 or all(all(c is None for c in sr) for sr in sample_rows):
                 logger.warning("标准化文件无数据行，返回空表")
-                return {}, {}
+                return {}, {}, {}
             raise ValueError(
                 f"无法定位字段列，请检查文件格式。\n"
                 f"表头: {list(header[:8])}\n"
@@ -271,21 +282,36 @@ def read_standard_file(filepath: str) -> dict[str, list[str]]:
             if cn_col is not None:
                 break
 
-    logger.info("标准化文件: 表名在列%d，字段名在列%d，中文名在列%d", table_idx, field_idx, cn_col)
+    logger.info("标准化文件: 表名在列%s，字段名在列%s，中文名在列%s", table_idx, field_idx, cn_col)
+
+    # 检测 模式名 列（通常在 Y列 = index 24，也支持自动搜索表头）
+    mode_idx: Optional[int] = None
+    mode_keywords = ["模式名", "模式名称", "接入模式"]
+    for i, h in enumerate(header):
+        if h and any(kw in str(h) for kw in mode_keywords):
+            mode_idx = i
+            break
+    # 回退：如果找不到模式名列，尝试第25列（Y列，0-based=24）
+    if mode_idx is None and len(header) > 24:
+        mode_idx = 24
 
     # 收集数据
     tables: dict[str, list[str]] = defaultdict(list)
-    cn_names: dict[str, dict[str, str]] = defaultdict(dict)  # {table: {field: cn_name}}
+    cn_names: dict[str, dict[str, str]] = defaultdict(dict)
+    std_modes: dict[str, str] = {}
     for row in rows[header_row_idx + 1 :]:
         table = str(row[table_idx]).strip() if row[table_idx] else None
         field = str(row[field_idx]).strip() if row[field_idx] else None
         cn_name = str(row[cn_col]).strip() if cn_col is not None and row[cn_col] else ""
+        mode = str(row[mode_idx]).strip() if mode_idx is not None and row[mode_idx] else ""
         if table and field:
             tables[table].append(field)
             if cn_name:
                 cn_names[table][field] = cn_name
+            if mode and table not in std_modes:
+                std_modes[table] = mode
 
-    return dict(tables), dict(cn_names)
+    return dict(tables), dict(cn_names), std_modes
 
 def read_cn_map(filepath: str) -> dict[str, dict[str, str]]:
     """读取中文名映射文件，格式：表名 | 字段名 | 中文名。返回 {table: {field: cn_name}}。"""
@@ -361,16 +387,16 @@ def compare_fields(
     dev_tables_raw: dict[str, list[str]],
     std_tables: dict[str, list[str]],
     exclude_fields: set[str],
+    dev_schemas: dict[str, str] | None = None,
+    std_modes: dict[str, str] | None = None,
     dev_cn_names: dict[str, dict[str, str]] | None = None,
     std_cn_names: dict[str, dict[str, str]] | None = None,
     cn_map: dict[str, dict[str, str]] | None = None,
 ) -> list[dict]:
     """
-    对比两边的字段，返回对比结果列表。
-    自动排除 exclude_fields 中指定的字段。
-    dev_cn_names: DEV文件中的中文名 {table: {field: cn}}
-    std_cn_names: 标准化文件中的中文名 {table: {field: cn}}
-    cn_map: 外部映射文件中的中文名 {table: {field: cn}}（补充到标准化侧）
+    对比两边的字段，返回对比结果列表。用 (模式, 标准表名) 作为匹配键。
+    dev_schemas: DEV中每张表的 SCHEMA标识 {dev_table_name: schema}
+    std_modes: 标准化中每张表的 模式名 {std_table_name: mode}
     """
     # 合并标准化侧中文名：映射文件优先，标准化文件补充
     std_merged_cn: dict[str, dict[str, str]] = defaultdict(dict)
@@ -384,20 +410,34 @@ def compare_fields(
         std_name = extract_std_name(dev_name)
         dev_cn_by_std[std_name].update(fields)
 
-    # 提取DEV标准表名，并过滤排除字段
-    dev_mapping: dict[str, dict] = {}
+    # 构建 DEV 侧: (schema, std_name) -> dev_info
+    dev_schemas = dev_schemas or {}
+    dev_by_key: dict[tuple[str, str], dict] = {}
     for dev_name, fields in dev_tables_raw.items():
         std_name = extract_std_name(dev_name)
+        schema = dev_schemas.get(dev_name, "")
+        key = (schema, std_name)
         filtered_fields = [f for f in fields if f not in exclude_fields]
-        dev_mapping[std_name] = {"dev_name": dev_name, "fields": filtered_fields}
+        dev_by_key[key] = {"dev_name": dev_name, "fields": filtered_fields, "schema": schema}
 
-    # 取两边表名的并集
-    all_tables = sorted(set(dev_mapping.keys()) | set(std_tables.keys()))
+    # 构建标准化侧: (mode, std_name) -> field_list
+    std_modes = std_modes or {}
+    std_by_key: dict[tuple[str, str], list[str]] = {}
+    std_mode_by_key: dict[tuple[str, str], str] = {}
+    for std_name, fields in std_tables.items():
+        mode = std_modes.get(std_name, "")
+        key = (mode, std_name)
+        std_by_key[key] = fields
+        std_mode_by_key[key] = mode
+
+    # 取两边 key 的并集
+    all_keys = sorted(set(dev_by_key.keys()) | set(std_by_key.keys()))
 
     results: list[dict] = []
-    for std_name in all_tables:
-        dev_info = dev_mapping.get(std_name)
-        std_fields_list = std_tables.get(std_name)
+    for key in all_keys:
+        mode, std_name = key
+        dev_info = dev_by_key.get(key)
+        std_fields_list = std_by_key.get(key)
 
         dev_name = dev_info["dev_name"] if dev_info else None
         dev_field_count = len(dev_info["fields"]) if dev_info else 0
@@ -442,6 +482,7 @@ def compare_fields(
 
         results.append(
             {
+                "模式": mode or dev_info.get("schema", "") if dev_info else mode,
                 "标准表名": std_name,
                 "DEV原表名": dev_name or "(缺失)",
                 "标准化字段数": std_field_count,
@@ -466,7 +507,7 @@ def write_excel(results: list[dict], output_path: str) -> None:
     # ----- Sheet 1: 汇总对比 -----
     ws1 = wb.active
     ws1.title = "汇总对比"
-    headers1 = ["标准表名", "DEV原表名", "标准化字段数", "DEV字段数", "对比结果", "差异说明"]
+    headers1 = ["模式", "标准表名", "DEV原表名", "标准化字段数", "DEV字段数", "对比结果", "差异说明"]
 
     style_header_row(ws1, headers1)
 
@@ -474,7 +515,7 @@ def write_excel(results: list[dict], output_path: str) -> None:
     data_rows: list[list] = []
     for r in results:
         data_rows.append([
-            r["标准表名"], r["DEV原表名"], r["标准化字段数"],
+            r["模式"], r["标准表名"], r["DEV原表名"], r["标准化字段数"],
             r["DEV字段数"], r["对比结果"], r["差异说明"],
         ])
 
@@ -487,8 +528,8 @@ def write_excel(results: list[dict], output_path: str) -> None:
         status_font = STATUS_FONTS.get(status, BODY_FONT)
         status_fill = STATUS_FILLS.get(status)
 
-        for col_idx in range(1, 7):
-            style_data_cell(ws1, r_idx, col_idx, font=status_font, fill=status_fill if col_idx == 5 else None)
+        for col_idx in range(1, 8):
+            style_data_cell(ws1, r_idx, col_idx, font=status_font, fill=status_fill if col_idx == 6 else None)
 
     # 统计汇总行
     summary_row = len(data_rows) + 2
@@ -511,34 +552,36 @@ def write_excel(results: list[dict], output_path: str) -> None:
 
     # ----- Sheet 2: 字段级详细对比 -----
     ws2 = wb.create_sheet("字段级详细对比")
-    headers2 = ["标准表名", "DEV原表名", "字段名", "标准化中文名", "DEV中文名", "字段来源"]
+    headers2 = ["模式", "标准表名", "DEV原表名", "字段名", "标准化中文名", "DEV中文名", "字段来源"]
     style_header_row(ws2, headers2)
 
     # 批量收集所有字段行
-    field_rows: list[tuple[str, str, str, str, str, str]] = []
+    field_rows: list[tuple[str, str, str, str, str, str, str]] = []
     for r in results:
         std_cn = r.get("_std_cn_map", {})
         dev_cn = r.get("_dev_cn_map", {})
+        mode = r.get("模式", "")
         for field in r["_common"]:
-            field_rows.append((r["标准表名"], r["DEV原表名"], field, std_cn.get(field, ""), dev_cn.get(field, ""), "两边共有"))
+            field_rows.append((mode, r["标准表名"], r["DEV原表名"], field, std_cn.get(field, ""), dev_cn.get(field, ""), "两边共有"))
         for field in r["_only_std"]:
-            field_rows.append((r["标准表名"], r["DEV原表名"], field, std_cn.get(field, ""), dev_cn.get(field, ""), "仅标准化有"))
+            field_rows.append((mode, r["标准表名"], r["DEV原表名"], field, std_cn.get(field, ""), dev_cn.get(field, ""), "仅标准化有"))
         for field in r["_only_dev"]:
-            field_rows.append((r["标准表名"], r["DEV原表名"], field, std_cn.get(field, ""), dev_cn.get(field, ""), "仅DEV有"))
+            field_rows.append((mode, r["标准表名"], r["DEV原表名"], field, std_cn.get(field, ""), dev_cn.get(field, ""), "仅DEV有"))
 
-    for r_idx, (table, dev_name, field, std_cn_name, dev_cn_name, source) in enumerate(field_rows, 2):
-        ws2.cell(row=r_idx, column=1, value=table)
-        ws2.cell(row=r_idx, column=2, value=dev_name)
-        ws2.cell(row=r_idx, column=3, value=field)
-        ws2.cell(row=r_idx, column=4, value=std_cn_name)
-        ws2.cell(row=r_idx, column=5, value=dev_cn_name)
-        ws2.cell(row=r_idx, column=6, value=source)
+    for r_idx, (mode, table, dev_name, field, std_cn_name, dev_cn_name, source) in enumerate(field_rows, 2):
+        ws2.cell(row=r_idx, column=1, value=mode)
+        ws2.cell(row=r_idx, column=2, value=table)
+        ws2.cell(row=r_idx, column=3, value=dev_name)
+        ws2.cell(row=r_idx, column=4, value=field)
+        ws2.cell(row=r_idx, column=5, value=std_cn_name)
+        ws2.cell(row=r_idx, column=6, value=dev_cn_name)
+        ws2.cell(row=r_idx, column=7, value=source)
 
         source_font = SOURCE_FONTS.get(source, BODY_FONT)
         source_fill = SOURCE_FILLS.get(source)
-        for col_idx in range(1, 7):
+        for col_idx in range(1, 8):
             style_data_cell(ws2, r_idx, col_idx, font=source_font,
-                           fill=source_fill if col_idx == 6 else None)
+                           fill=source_fill if col_idx == 7 else None)
 
     set_column_widths(ws2, DETAIL_COL_WIDTHS)
     freeze_header(ws2)
@@ -673,11 +716,11 @@ def main() -> None:
 
     # 读取数据
     logger.info("读取TEST_DEV...")
-    dev_tables, dev_cn_names = read_test_dev(dev_path)
+    dev_tables, dev_cn_names, dev_schemas = read_test_dev(dev_path)
     logger.info("  -> %d 个表", len(dev_tables))
 
     logger.info("读取标准化文件...")
-    std_tables, std_cn_names = read_standard_file(std_path)
+    std_tables, std_cn_names, std_modes = read_standard_file(std_path)
     logger.info("  -> %d 个表", len(std_tables))
 
     # 读取中文名映射（可选）
@@ -691,7 +734,7 @@ def main() -> None:
 
     # 对比
     logger.info("执行字段对比...")
-    results = compare_fields(dev_tables, std_tables, exclude_fields, dev_cn_names, std_cn_names, cn_map)
+    results = compare_fields(dev_tables, std_tables, exclude_fields, dev_schemas, std_modes, dev_cn_names, std_cn_names, cn_map)
 
     # 输出
     if not console_only:

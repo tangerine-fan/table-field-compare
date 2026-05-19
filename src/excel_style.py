@@ -58,7 +58,7 @@ THIN_BORDER = Border(
 )
 
 # ── 列宽 ──
-SUMMARY_COL_WIDTHS = [25, 35, 15, 15, 15, 80]
+SUMMARY_COL_WIDTHS = [10, 25, 35, 15, 15, 15, 80]
 DETAIL_COL_WIDTHS = [25, 35, 30, 15]
 
 
