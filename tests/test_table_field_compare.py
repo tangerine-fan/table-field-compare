@@ -151,6 +151,48 @@ class TestNormalRun:
         fill = ws.cell(row=1, column=1).fill.start_color.rgb
         assert fill == "004472C4", f"期望 004472C4，实际 {fill}"
 
+    def test_chinese_names(self, dev_xlsx, out_xlsx):
+        """中文名从标准化文件读取并显示"""
+        # 创建带中文名列的标准文件
+        tmpdir = os.path.dirname(out_xlsx)
+        std_with_cn = os.path.join(tmpdir, "std_with_cn.xlsx")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "标准化字段映射"
+        ws.cell(row=1, column=1, value="标准化字段映射表")
+        ws.cell(row=2, column=2, value="表名")
+        ws.cell(row=2, column=3, value="字段名称")
+        ws.cell(row=2, column=4, value="字段中文名")
+        data = [
+            ("CCS_CARD_ACCT", "ACCT_NO", "账户号"),
+            ("CCS_CARD_ACCT", "CARD_NO", "卡号"),
+            ("CCS_CARD_ACCT", "OVLMT_DATE", "超额日期"),
+            ("CCS_CARD_ACCT", "CARD_STS", "卡片状态"),
+            ("CRD_CUST_INFO", "CUST_ID", "客户ID"),
+            ("CRD_CUST_INFO", "CUST_NAME", "客户姓名"),
+            ("CRD_CUST_INFO", "BIRTH_DT", "出生日期"),
+        ]
+        for i, (t, f, cn) in enumerate(data, 3):
+            ws.cell(row=i, column=2, value=t)
+            ws.cell(row=i, column=3, value=f)
+            ws.cell(row=i, column=4, value=cn)
+        wb.save(std_with_cn)
+
+        run(dev_xlsx, std_with_cn, "-o", out_xlsx)
+        wb_out = openpyxl.load_workbook(out_xlsx)
+        ws2 = wb_out["字段级详细对比"]
+        # 检查中文名列存在
+        assert ws2.cell(row=1, column=4).value == "字段中文名"
+        # 检查具体值
+        cn_values = {}
+        for row in range(2, ws2.max_row + 1):
+            field = ws2.cell(row=row, column=3).value
+            cn = ws2.cell(row=row, column=4).value
+            if field and cn:
+                cn_values[field] = cn
+        assert cn_values.get("ACCT_NO") == "账户号"
+        assert cn_values.get("CARD_NO") == "卡号"
+
 
 class TestEdgeCases:
     """边界情况"""

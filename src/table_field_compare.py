@@ -218,8 +218,8 @@ def read_standard_file(filepath: str) -> dict[str, list[str]]:
             if field_idx is not None:
                 break
 
-    # 策略2: 用数据特征检测前5个列
     if field_idx is None:
+        # 策略2: 用数据特征检测前5个列
         best_col: Optional[int] = None
         best_score = 0
         for col_idx in range(min(5, len(header))):
@@ -239,24 +239,85 @@ def read_standard_file(filepath: str) -> dict[str, list[str]]:
             # 如果没有任何数据行，返回空表（文件只有表头）
             if len(sample_rows) == 0 or all(all(c is None for c in sr) for sr in sample_rows):
                 logger.warning("标准化文件无数据行，返回空表")
-                return {}
+                return {}, {}
             raise ValueError(
                 f"无法定位字段列，请检查文件格式。\n"
                 f"表头: {list(header[:8])}\n"
                 f"采样数据: {[list(sr[:5]) if sr else [] for sr in sample_rows[:2]]}"
             )
 
-    logger.info("标准化文件: 表名在列%d，字段名在列%d", table_idx, field_idx)
+    # 检测中文名列（可选，没有也不报错）
+    cn_col: Optional[int] = None
+    cn_keywords = ["字段中文名", "中文名", "字段名称（中文）", "中文名称", "中文描述"]
+    for i, h in enumerate(header):
+        if h and any(kw in str(h) for kw in cn_keywords):
+            for sr in sample_rows:
+                if sr[i] and isinstance(sr[i], str) and any("\u4e00" <= ch <= "\u9fff" for ch in sr[i]):
+                    cn_col = i
+                    break
+            if cn_col is not None:
+                break
+
+    logger.info("标准化文件: 表名在列%d，字段名在列%d，中文名在列%d", table_idx, field_idx, cn_col)
 
     # 收集数据
     tables: dict[str, list[str]] = defaultdict(list)
+    cn_names: dict[str, dict[str, str]] = defaultdict(dict)  # {table: {field: cn_name}}
     for row in rows[header_row_idx + 1 :]:
         table = str(row[table_idx]).strip() if row[table_idx] else None
         field = str(row[field_idx]).strip() if row[field_idx] else None
+        cn_name = str(row[cn_col]).strip() if cn_col is not None and row[cn_col] else ""
         if table and field:
             tables[table].append(field)
+            if cn_name:
+                cn_names[table][field] = cn_name
 
-    return dict(tables)
+    return dict(tables), dict(cn_names)
+
+def read_cn_map(filepath: str) -> dict[str, dict[str, str]]:
+    """读取中文名映射文件，格式：表名 | 字段名 | 中文名。返回 {table: {field: cn_name}}。"""
+    wb = openpyxl.load_workbook(filepath, data_only=True)
+    ws = wb[wb.sheetnames[0]]
+    rows = list(ws.iter_rows(values_only=True))
+
+    # 找表头
+    header_row_idx = None
+    for i, row in enumerate(rows):
+        for cell in row:
+            if cell and ("表名" in str(cell) or "TABLE" in str(cell).upper()):
+                header_row_idx = i
+                break
+        if header_row_idx is not None:
+            break
+    if header_row_idx is None:
+        raise ValueError("中文名映射文件中无法找到表头行")
+
+    header = rows[header_row_idx]
+    table_idx = field_idx = cn_idx = None
+    for i, h in enumerate(header):
+        if not h:
+            continue
+        hs = str(h)
+        if table_idx is None and "表名" in hs:
+            table_idx = i
+        elif field_idx is None and ("字段名" in hs or "字段英文名" in hs):
+            field_idx = i
+        elif cn_idx is None and ("中文名" in hs or "中文" in hs):
+            cn_idx = i
+
+    if None in (table_idx, field_idx, cn_idx):
+        raise ValueError(f"中文名映射文件缺少必要列。找到: 表名={table_idx}, 字段名={field_idx}, 中文名={cn_idx}")
+
+    cn_map: dict[str, dict[str, str]] = defaultdict(dict)
+    for row in rows[header_row_idx + 1:]:
+        table = str(row[table_idx]).strip() if row[table_idx] else None
+        field = str(row[field_idx]).strip() if row[field_idx] else None
+        cn_name = str(row[cn_idx]).strip() if row[cn_idx] else ""
+        if table and field and cn_name:
+            cn_map[table][field] = cn_name
+
+    logger.info("中文名映射: %d 个表，%d 个字段", len(cn_map), sum(len(v) for v in cn_map.values()))
+    return dict(cn_map)
 
 def extract_std_name(dev_table_name: str) -> str:
     """
@@ -287,11 +348,21 @@ def compare_fields(
     dev_tables_raw: dict[str, list[str]],
     std_tables: dict[str, list[str]],
     exclude_fields: set[str],
+    std_cn_names: dict[str, dict[str, str]] | None = None,
+    cn_map: dict[str, dict[str, str]] | None = None,
 ) -> list[dict]:
     """
     对比两边的字段，返回对比结果列表。
     自动排除 exclude_fields 中指定的字段。
+    std_cn_names: 标准化文件中的中文名 {table: {field: cn}}
+    cn_map: 外部映射文件中的中文名 {table: {field: cn}}
     """
+    # 合并中文名：映射文件优先，标准化文件补充
+    merged_cn: dict[str, dict[str, str]] = defaultdict(dict)
+    for src in [std_cn_names or {}, cn_map or {}]:
+        for table, fields in src.items():
+            merged_cn[table].update(fields)
+
     # 提取DEV标准表名，并过滤排除字段
     dev_mapping: dict[str, dict] = {}
     for dev_name, fields in dev_tables_raw.items():
@@ -359,6 +430,7 @@ def compare_fields(
                 "_common": sorted(common),
                 "_only_std": sorted(only_std),
                 "_only_dev": sorted(only_dev),
+                "_cn_map": merged_cn.get(std_name, {}),
             }
         )
 
@@ -417,30 +489,32 @@ def write_excel(results: list[dict], output_path: str) -> None:
 
     # ----- Sheet 2: 字段级详细对比 -----
     ws2 = wb.create_sheet("字段级详细对比")
-    headers2 = ["标准表名", "DEV原表名", "字段名", "字段来源"]
+    headers2 = ["标准表名", "DEV原表名", "字段名", "字段中文名", "字段来源"]
     style_header_row(ws2, headers2)
 
     # 批量收集所有字段行
-    field_rows: list[tuple[str, str, str, str]] = []
+    field_rows: list[tuple[str, str, str, str, str]] = []
     for r in results:
+        cn = r.get("_cn_map", {})
         for field in r["_common"]:
-            field_rows.append((r["标准表名"], r["DEV原表名"], field, "两边共有"))
+            field_rows.append((r["标准表名"], r["DEV原表名"], field, cn.get(field, ""), "两边共有"))
         for field in r["_only_std"]:
-            field_rows.append((r["标准表名"], r["DEV原表名"], field, "仅标准化有"))
+            field_rows.append((r["标准表名"], r["DEV原表名"], field, cn.get(field, ""), "仅标准化有"))
         for field in r["_only_dev"]:
-            field_rows.append((r["标准表名"], r["DEV原表名"], field, "仅DEV有"))
+            field_rows.append((r["标准表名"], r["DEV原表名"], field, cn.get(field, ""), "仅DEV有"))
 
-    for r_idx, (table, dev_name, field, source) in enumerate(field_rows, 2):
+    for r_idx, (table, dev_name, field, cn_name, source) in enumerate(field_rows, 2):
         ws2.cell(row=r_idx, column=1, value=table)
         ws2.cell(row=r_idx, column=2, value=dev_name)
         ws2.cell(row=r_idx, column=3, value=field)
-        ws2.cell(row=r_idx, column=4, value=source)
+        ws2.cell(row=r_idx, column=4, value=cn_name)
+        ws2.cell(row=r_idx, column=5, value=source)
 
         source_font = SOURCE_FONTS.get(source, BODY_FONT)
         source_fill = SOURCE_FILLS.get(source)
-        for col_idx in range(1, 5):
+        for col_idx in range(1, 6):
             style_data_cell(ws2, r_idx, col_idx, font=source_font,
-                           fill=source_fill if col_idx == 4 else None)
+                           fill=source_fill if col_idx == 5 else None)
 
     set_column_widths(ws2, DETAIL_COL_WIDTHS)
     freeze_header(ws2)
@@ -524,6 +598,11 @@ def parse_args() -> argparse.Namespace:
         help="需要排除的字段，逗号分隔（默认: DEL_FLG,ETL_TM_STMP,PART_DT,SRC_SYS_CD）",
     )
     parser.add_argument(
+        "--cn-map",
+        default=None,
+        help="字段中文名映射文件（可选，格式: 表名|字段名|中文名）",
+    )
+    parser.add_argument(
         "--console-only",
         action="store_true",
         help="仅打印控制台输出，不生成 Excel 文件",
@@ -574,12 +653,21 @@ def main() -> None:
     logger.info("  -> %d 个表", len(dev_tables))
 
     logger.info("读取标准化文件...")
-    std_tables = read_standard_file(std_path)
+    std_tables, std_cn_names = read_standard_file(std_path)
     logger.info("  -> %d 个表", len(std_tables))
+
+    # 读取中文名映射（可选）
+    cn_map = None
+    if args.cn_map:
+        if not Path(args.cn_map).exists():
+            logger.error("中文名映射文件不存在: %s", args.cn_map)
+            sys.exit(1)
+        logger.info("读取中文名映射...")
+        cn_map = read_cn_map(args.cn_map)
 
     # 对比
     logger.info("执行字段对比...")
-    results = compare_fields(dev_tables, std_tables, exclude_fields)
+    results = compare_fields(dev_tables, std_tables, exclude_fields, std_cn_names, cn_map)
 
     # 输出
     if not console_only:
