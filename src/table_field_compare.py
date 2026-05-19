@@ -410,34 +410,28 @@ def compare_fields(
         std_name = extract_std_name(dev_name)
         dev_cn_by_std[std_name].update(fields)
 
-    # 构建 DEV 侧: (schema, std_name) -> dev_info
+    # 构建 DEV 侧: std_name -> dev_info（附带上 schema）
     dev_schemas = dev_schemas or {}
-    dev_by_key: dict[tuple[str, str], dict] = {}
+    dev_by_std: dict[str, dict] = {}
     for dev_name, fields in dev_tables_raw.items():
         std_name = extract_std_name(dev_name)
         schema = dev_schemas.get(dev_name, "")
-        key = (schema, std_name)
         filtered_fields = [f for f in fields if f not in exclude_fields]
-        dev_by_key[key] = {"dev_name": dev_name, "fields": filtered_fields, "schema": schema}
+        dev_by_std[std_name] = {"dev_name": dev_name, "fields": filtered_fields, "schema": schema}
 
-    # 构建标准化侧: (mode, std_name) -> field_list
+    # 标准化侧: std_name -> mode
     std_modes = std_modes or {}
-    std_by_key: dict[tuple[str, str], list[str]] = {}
-    std_mode_by_key: dict[tuple[str, str], str] = {}
-    for std_name, fields in std_tables.items():
-        mode = std_modes.get(std_name, "")
-        key = (mode, std_name)
-        std_by_key[key] = fields
-        std_mode_by_key[key] = mode
 
-    # 取两边 key 的并集
-    all_keys = sorted(set(dev_by_key.keys()) | set(std_by_key.keys()))
+    # 取两边表名的并集
+    all_tables = sorted(set(dev_by_std.keys()) | set(std_tables.keys()))
 
     results: list[dict] = []
-    for key in all_keys:
-        mode, std_name = key
-        dev_info = dev_by_key.get(key)
-        std_fields_list = std_by_key.get(key)
+    for std_name in all_tables:
+        dev_info = dev_by_std.get(std_name)
+        std_fields_list = std_tables.get(std_name)
+        # 模式取值：优先 DEV 的 schema，回退标准化的 mode
+        mode = (dev_info["schema"] if dev_info and dev_info["schema"] else 
+                std_modes.get(std_name, ""))
 
         dev_name = dev_info["dev_name"] if dev_info else None
         dev_field_count = len(dev_info["fields"]) if dev_info else 0
@@ -482,7 +476,7 @@ def compare_fields(
 
         results.append(
             {
-                "模式": mode or dev_info.get("schema", "") if dev_info else mode,
+                "模式": mode,
                 "标准表名": std_name,
                 "DEV原表名": dev_name or "(缺失)",
                 "标准化字段数": std_field_count,
